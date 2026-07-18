@@ -2453,6 +2453,7 @@ name = "prompter"
 version = "0.1.0"
 dependencies = [
  "core-graphics",
+ "objc2",
  "serde",
  "serde_json",
  "tauri",
