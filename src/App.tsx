@@ -124,7 +124,6 @@ function App() {
   const [sourceText, setSourceText] = useState("");
   const [notice, setNotice] = useState("Ready");
   const [isWorking, setIsWorking] = useState(false);
-  const [providerReady, setProviderReady] = useState(false);
   const [theme, setTheme] = useState<AppTheme>(loadTheme);
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -197,7 +196,6 @@ function App() {
     const bounds = readProviderBounds();
     if (!bounds) throw new Error("The embedded browser area is not ready yet.");
     await invoke("show_provider_webview", { provider, bounds });
-    setProviderReady(true);
   }, [provider, readProviderBounds]);
 
   useLayoutEffect(() => {
@@ -205,7 +203,6 @@ function App() {
     let animationFrame = 0;
 
     const showProvider = async () => {
-      setProviderReady(false);
       try {
         await ensureProviderWebview();
         if (!disposed) {
@@ -400,20 +397,27 @@ function App() {
       </aside>
 
       <main className="workspace">
-        <section className="provider-bar" aria-label="AI provider">
-          <div>
-            <span className="section-label">AI provider</span>
-            <p>Login, chat and responses stay inside this Prompter window.</p>
+        <section className="browser-card" aria-label={`${provider === "chatgpt" ? "ChatGPT" : "Gemini"} browser`}>
+          <div className="provider-webview-frame">
+            <div className="provider-loading-placeholder">
+              <span className="empty-orbit"><Icon name="sparkle" size={25} /></span>
+              <strong>Opening {provider === "chatgpt" ? "ChatGPT" : "Gemini"}…</strong>
+              <p>Sign in here once, then use the same panel for every rewrite.</p>
+            </div>
+            <div className="provider-webview-host" ref={providerHostRef} />
           </div>
-          <div className="provider-options">
+        </section>
+
+        <section className="bottom-dock" aria-label="Prepare prompt">
+          <div className="dock-provider-options" aria-label="AI provider">
             <button
               className={`provider-button ${provider === "chatgpt" ? "selected" : ""}`}
               onClick={() => setProvider("chatgpt")}
               type="button"
             >
               <span className="provider-logo chatgpt">◎</span>
-              ChatGPT
-              {provider === "chatgpt" && <Icon name="check" size={15} />}
+              <span>ChatGPT</span>
+              {provider === "chatgpt" && <Icon name="check" size={14} />}
             </button>
             <button
               className={`provider-button ${provider === "gemini" ? "selected" : ""}`}
@@ -421,74 +425,46 @@ function App() {
               type="button"
             >
               <span className="provider-logo gemini">✦</span>
-              Gemini
-              {provider === "gemini" && <Icon name="check" size={15} />}
+              <span>Gemini</span>
+              {provider === "gemini" && <Icon name="check" size={14} />}
             </button>
           </div>
-        </section>
 
-        <div className="content-grid">
-          <section className="composer-card">
-            <div className="card-heading">
-              <div>
-                <span className="section-label">Your text</span>
-              </div>
-              <button className="text-button" onClick={captureClipboard} type="button">
-                <Icon name="clipboard" size={16} /> Capture clipboard
+          <div className="dock-text-box">
+            <div className="dock-text-heading">
+              <span>Your text</span>
+              <button onClick={captureClipboard} type="button">
+                <Icon name="clipboard" size={14} /> Capture clipboard
               </button>
             </div>
-
             <textarea
               aria-label="Text to rewrite"
               onChange={(event) => setSourceText(event.target.value)}
-              placeholder="Copy text from Notion, Apple Notes, Mail, or any other app…"
+              placeholder="Paste or type the text you want to rewrite…"
               value={sourceText}
             />
-            <div className="textarea-meta">
+            <div className="dock-text-meta">
               <span>{sourceText.length} characters</span>
               {sourceText && (
                 <button onClick={() => setSourceText("")} type="button">Clear</button>
               )}
             </div>
+          </div>
 
-            <button
-              className="rewrite-button"
-              disabled={isWorking || !sourceText.trim()}
-              onClick={prepareRewrite}
-              type="button"
-            >
-              <Icon name="sparkle" size={18} />
-              {isWorking ? "Placing prompt…" : `Place in ${provider === "chatgpt" ? "ChatGPT" : "Gemini"}`}
-              <span className="button-arrow"><Icon name="chevron" size={16} /></span>
-            </button>
-            <p className="manual-send-note">
-              Prompter fills the AI input box. You review it and press Send.
-            </p>
-          </section>
-
-          <section className="provider-card">
-            <div className="card-heading provider-card-heading">
-              <div>
-                <span className="section-label">
-                  {provider === "chatgpt" ? "ChatGPT" : "Gemini"}
-                </span>
-              </div>
-              <span className={`provider-state ${providerReady ? "ready" : ""}`}>
-                <span className="status-dot" />
-                {providerReady ? "Ready" : "Loading"}
-              </span>
-            </div>
-
-            <div className="provider-webview-frame">
-              <div className="provider-loading-placeholder">
-                <span className="empty-orbit"><Icon name="sparkle" size={25} /></span>
-                <strong>Opening {provider === "chatgpt" ? "ChatGPT" : "Gemini"}…</strong>
-                <p>Sign in here once, then use the same panel for every rewrite.</p>
-              </div>
-              <div className="provider-webview-host" ref={providerHostRef} />
-            </div>
-          </section>
-        </div>
+          <button
+            className="dock-place-button"
+            disabled={isWorking || !sourceText.trim()}
+            onClick={prepareRewrite}
+            type="button"
+          >
+            <Icon name="sparkle" size={19} />
+            <span>
+              <strong>{isWorking ? "Placing…" : `Place in ${provider === "chatgpt" ? "ChatGPT" : "Gemini"}`}</strong>
+              <small>You press Send</small>
+            </span>
+            <Icon name="chevron" size={16} />
+          </button>
+        </section>
 
         <footer className="status-bar">
           <span className="status-dot" />
