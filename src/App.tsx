@@ -26,7 +26,6 @@ type Preset = {
   id: string;
   name: string;
   instruction: string;
-  description: string;
   color: "violet" | "blue" | "amber" | "green" | "rose";
 };
 
@@ -36,7 +35,6 @@ const DEFAULT_PRESETS: Preset[] = [
     name: "Make it clearer",
     instruction:
       "Rewrite the following text so it is clear, easy to understand, and well structured. Keep the original meaning.",
-    description: "Simple, structured language",
     color: "violet",
   },
   {
@@ -44,7 +42,6 @@ const DEFAULT_PRESETS: Preset[] = [
     name: "Fix grammar",
     instruction:
       "Correct the grammar, spelling, and punctuation in the following text. Do not change its meaning or tone.",
-    description: "Clean up mistakes only",
     color: "blue",
   },
   {
@@ -52,7 +49,6 @@ const DEFAULT_PRESETS: Preset[] = [
     name: "Professional tone",
     instruction:
       "Rewrite the following text in a confident, polished, and professional tone. Keep it natural and concise.",
-    description: "Polished and confident",
     color: "amber",
   },
   {
@@ -60,7 +56,6 @@ const DEFAULT_PRESETS: Preset[] = [
     name: "Make it concise",
     instruction:
       "Rewrite the following text using fewer words. Remove repetition and unnecessary details while preserving all important information.",
-    description: "Shorter without losing meaning",
     color: "green",
   },
 ];
@@ -291,7 +286,6 @@ function App() {
       id: "",
       name: "",
       instruction: "",
-      description: "",
       color: "rose",
     });
     setShowEditor(true);
@@ -317,7 +311,6 @@ function App() {
       const created = {
         ...editingPreset,
         id: `custom-${Date.now()}`,
-        description: editingPreset.description || "Custom instruction",
       };
       setPresets((current) => [...current, created]);
       setSelectedPresetId(created.id);
@@ -373,7 +366,6 @@ function App() {
                   <span className={`preset-icon ${preset.color}`}><Icon name="wand" size={16} /></span>
                   <span>
                     <strong>{preset.name}</strong>
-                    <small>{preset.description}</small>
                   </span>
                 </button>
                 <button
@@ -531,14 +523,6 @@ function App() {
                 onChange={(event) => setEditingPreset({ ...editingPreset, name: event.target.value })}
                 placeholder="Example: Friendly email"
                 value={editingPreset.name}
-              />
-            </label>
-            <label>
-              Short description
-              <input
-                onChange={(event) => setEditingPreset({ ...editingPreset, description: event.target.value })}
-                placeholder="What this instruction does"
-                value={editingPreset.description}
               />
             </label>
             <label>

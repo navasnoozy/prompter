@@ -31,7 +31,7 @@ textarea:focus-visible {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 226px minmax(0, 1fr);
+  grid-template-columns: 270px minmax(0, 1fr);
   background:
     radial-gradient(circle at 65% -10%, rgba(179, 159, 237, 0.16), transparent 30%),
     #f7f6fa;
@@ -55,7 +55,7 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 10px 27px;
+  padding: 0 8px 19px;
   font-family: "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 20px;
   font-weight: 700;
@@ -74,6 +74,60 @@ textarea:focus-visible {
 }
 
 .nav-list { display: grid; gap: 5px; }
+
+.sidebar-instructions {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.sidebar-section-heading {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 5px 7px;
+  color: #a9a2bb;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.sidebar-section-heading button {
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 8px;
+  color: #c5b7eb;
+  background: rgba(255, 255, 255, .05);
+  cursor: pointer;
+}
+.sidebar-section-heading button:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+.sidebar-preset-list {
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px 2px 7px;
+  scrollbar-width: thin;
+}
+.sidebar .preset-row {
+  border-color: rgba(255, 255, 255, .075);
+  background: rgba(255, 255, 255, .035);
+}
+.sidebar .preset-row:hover { border-color: rgba(190, 166, 255, .28); background: rgba(255, 255, 255, .06); }
+.sidebar .preset-row.selected {
+  border-color: rgba(179, 146, 255, .62);
+  background: rgba(128, 92, 216, .2);
+  box-shadow: 0 0 0 2px rgba(135, 99, 224, .08);
+}
+.sidebar .preset-main { padding: 8px; }
+.sidebar .preset-main strong { color: #f0ecf7; font-size: 10px; }
+.sidebar .edit-preset { width: 31px; color: #777083; }
+.sidebar .edit-preset:hover { color: #c7b1ff; }
+.sidebar .preset-icon { width: 27px; height: 27px; }
 
 .nav-item {
   width: 100%;
@@ -97,7 +151,7 @@ textarea:focus-visible {
 .nav-item.active .icon { color: #ae91ff; }
 
 .sidebar-tip {
-  margin: auto 2px 16px;
+  margin: 12px 2px 16px;
   padding: 15px;
   display: grid;
   gap: 7px;
@@ -240,7 +294,7 @@ h1 {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(320px, .74fr) minmax(440px, 1.26fr);
+  grid-template-columns: minmax(250px, .6fr) minmax(380px, 1.4fr);
   gap: 17px;
   align-items: stretch;
   flex: 1;
@@ -281,7 +335,8 @@ h1 {
 
 .composer-card > textarea {
   width: 100%;
-  min-height: 128px;
+  min-height: 220px;
+  flex: 1;
   margin-top: 13px;
   padding: 14px;
   resize: vertical;
@@ -323,7 +378,6 @@ h1 {
 }
 .preset-main > span:last-child { min-width: 0; display: grid; gap: 1px; }
 .preset-main strong { overflow: hidden; color: #46414f; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.preset-main small { overflow: hidden; color: #9893a1; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .preset-icon { width: 29px; height: 29px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; }
 .preset-icon.violet { color: #6e51d9; background: #eee8ff; }
 .preset-icon.blue { color: #397ac8; background: #e9f3ff; }
@@ -520,16 +574,6 @@ h1 {
 .theme-dark .preset-modal { color: #eeeaf4; border-color: #403a4b; background: #1b1922; }
 .theme-dark .modal-actions { border-color: #34303f; }
 .theme-dark .preset-modal label { color: #c8c2ce; }
-
-@media (max-width: 1160px) {
-  .app-shell { grid-template-columns: 78px minmax(0, 1fr); }
-  .sidebar { padding: 22px 12px; }
-  .brand { justify-content: center; padding: 0 0 25px; }
-  .brand > span:last-child, .nav-item:not(.active) > :not(.icon), .nav-item { font-size: 0; }
-  .nav-item { justify-content: center; padding: 11px; }
-  .sidebar-tip { display: none; }
-  .settings-link { margin-top: auto; }
-}
 
 @media (max-width: 680px) {
   .app-shell { display: block; }
