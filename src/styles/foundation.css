@@ -1,0 +1,64 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  color: #20202a;
+  background: #f4f2f8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --ink: #20202a;
+  --muted: #777487;
+  --border: #e8e4ef;
+  --paper: #ffffff;
+  --purple: #6e51d9;
+  --purple-dark: #5638c0;
+  --purple-soft: #f1edff;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { min-height: 100%; margin: 0; }
+
+button, input, textarea { font: inherit; }
+button { color: inherit; }
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(110, 81, 217, 0.2);
+  outline-offset: 2px;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr);
+  background:
+    radial-gradient(circle at 65% -10%, rgba(179, 159, 237, 0.16), transparent 30%),
+    #f7f6fa;
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  color: var(--purple);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+
+h2, p { margin-top: 0; }
+.status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #46b87b; box-shadow: 0 0 0 3px rgba(70,184,123,0.12); }
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: #726d7f;
+  background: #fff;
+  cursor: pointer;
+}
+.icon-button:hover { color: var(--purple); border-color: #d8cef4; }

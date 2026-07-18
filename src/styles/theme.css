@@ -1,0 +1,48 @@
+.app-shell.theme-dark {
+  --ink: #f0edf6;
+  --muted: #9d97aa;
+  --border: #34303f;
+  --paper: #1b1922;
+  color: #eeebf4;
+  background:
+    radial-gradient(circle at 65% -10%, rgba(105, 74, 190, .2), transparent 30%),
+    #121118;
+}
+.theme-dark .workspace { background: transparent; }
+.theme-dark .browser-card,
+.theme-dark .bottom-dock { border-color: #34303f; background: #1b1922; box-shadow: 0 14px 40px rgba(0, 0, 0, .18); }
+.theme-dark .dock-text-meta,
+.theme-dark .status-bar { color: #918b9e; }
+.theme-dark .preset-main strong,
+.theme-dark .settings-section strong,
+.theme-dark .dock-text-heading > span { color: #e6e1ed; }
+.theme-dark .provider-button,
+.theme-dark .icon-button,
+.theme-dark .preset-row,
+.theme-dark .theme-options button,
+.theme-dark .secondary-button { color: #c4becd; border-color: #3a3545; background: #24212c; }
+.theme-dark .provider-button.selected,
+.theme-dark .theme-options button.selected,
+.theme-dark .preset-row.selected { color: #c9b9ff; border-color: #735ab2; background: #2d263d; }
+.theme-dark .dock-text-box,
+.theme-dark .preset-modal input,
+.theme-dark .preset-modal textarea { color: #eeeaf3; border-color: #3a3545; background: #211e29; }
+.theme-dark .dock-text-box textarea { color: #eeeaf3; }
+.theme-dark .dock-text-box textarea::placeholder,
+.theme-dark .preset-modal input::placeholder,
+.theme-dark .preset-modal textarea::placeholder { color: #777181; }
+.theme-dark .provider-webview-frame { background: #15131b; }
+.theme-dark .provider-loading-placeholder strong,
+.theme-dark .modal-header h2 { color: #eeeaf4; }
+.theme-dark .provider-loading-placeholder p,
+.theme-dark .settings-section p { color: #918b9e; }
+.theme-dark .preset-modal { color: #eeeaf4; border-color: #403a4b; background: #1b1922; }
+.theme-dark .modal-actions { border-color: #34303f; }
+.theme-dark .preset-modal label { color: #c8c2ce; }
+
+@media (max-width: 680px) {
+  .app-shell { display: block; }
+  .sidebar { display: none; }
+  .workspace { padding: 10px 10px 8px; }
+  .bottom-dock { grid-template-columns: 1fr; }
+}
