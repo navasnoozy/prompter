@@ -7,14 +7,16 @@ Prompter is a macOS-first Tauri 2 desktop companion for rewriting selected text 
 - Tauri 2 + Rust native shell
 - React 19 + TypeScript interface
 - Editable instruction presets saved locally
-- ChatGPT and Gemini provider windows inside Prompter
+- ChatGPT and Gemini embedded directly in the right side of the main Prompter window
 - Clipboard capture
 - Global `Command + Shift + P` shortcut
 - Automatic macOS `Command + C` event for the current selection
 - Rust prompt composition with validation
-- Provider adapters that fill the ChatGPT/Gemini composer, send, observe completion, and return response text to Prompter
+- Provider adapters that place the composed instruction and selected text into the real ChatGPT/Gemini input box
+- Manual send: the user reviews the prepared prompt and presses the provider's Send button
+- Responses and provider Copy buttons remain in the embedded ChatGPT/Gemini interface
 
-The next milestone hardens the provider selectors against real signed-in sessions, adds onboarding for macOS Accessibility permission, and replaces the original selected text from the result panel.
+The next milestone hardens the provider selectors against future provider UI changes and adds onboarding for macOS Accessibility permission.
 
 ## Run locally
 
