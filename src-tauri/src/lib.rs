@@ -13,9 +13,8 @@ pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 use app_lifecycle::{
     get_app_lifecycle_status, set_launch_at_login, ActivationSource, AppLifecycleCoordinator,
 };
-use prompt::compose_prompt;
 use provider::{
-    fill_provider_prompt, resize_provider_webview, set_provider_visibility, show_provider_webview,
+    place_prompt, resize_provider_webview, set_provider_visibility, show_provider_webview,
     ProviderLifecycle,
 };
 use quick_capture::{
@@ -32,21 +31,35 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
-                .filter(|metadata| metadata.target().starts_with("prompter"))
+                // Prompter's own targets log at Info+; framework targets are
+                // kept only at Warn+ so plugin/webview failures stay visible.
+                .filter(|metadata| {
+                    metadata.target().starts_with("prompter")
+                        || metadata.level() <= log::Level::Warn
+                })
                 .max_file_size(2_000_000)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 .build(),
         )
         .plugin(quick_capture::shortcut_plugin())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
+        .plugin(tauri_plugin_store::Builder::default().build())
         .manage(ProviderLifecycle::default())
         .manage(AppLifecycleCoordinator::default())
         .manage(QuickCaptureCoordinator::default())
         .invoke_handler(tauri::generate_handler![
-            compose_prompt,
             show_provider_webview,
             resize_provider_webview,
             set_provider_visibility,
-            fill_provider_prompt,
+            place_prompt,
             get_quick_capture_status,
             request_quick_capture_permission,
             open_quick_capture_settings,
@@ -60,6 +73,7 @@ pub fn run() {
         .setup(|app| {
             let autostart_available = app_lifecycle::install_autostart_plugin(app.handle());
             app_lifecycle::initialize(app.handle(), autostart_available);
+            app_lifecycle::install_tray(app.handle());
             quick_capture::initialize(app.handle());
             Ok(())
         })

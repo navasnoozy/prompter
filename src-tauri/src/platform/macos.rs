@@ -5,7 +5,6 @@ use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSWorkspace};
 use objc2_foundation::{NSString, NSURL};
 use tauri::{Runtime, Window};
 
-pub(super) const PROVIDER_CONTENT_OFFSET_Y: f64 = 32.0;
 const PROVIDER_CORNER_RADIUS: f64 = 16.0;
 
 /// Makes the permanent main window follow the user to their active macOS Space.
