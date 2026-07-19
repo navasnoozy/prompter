@@ -10,6 +10,7 @@ Prompter is a macOS-first Tauri 2 companion for rewriting selected text with a u
 - Prompter never presses Send. The user reviews and sends the prompt manually.
 - Responses and provider Copy buttons remain inside ChatGPT or Gemini.
 - Before inserting user text, the native layer verifies that the WebView is on the expected provider host.
+- Quick Capture (`Command + Shift + P`) copies selected text from the active macOS app, restores the previous clipboard exactly, and opens Prompter. It never sends the text automatically.
 
 ## Requirements
 
@@ -17,7 +18,9 @@ Prompter is a macOS-first Tauri 2 companion for rewriting selected text with a u
 - Node.js 20.19+, 22.12+, or 24+
 - Rust 1.77.2 or newer
 
-Quick Capture (`Command + Shift + P`) requires Prompter to be allowed under **System Settings → Privacy & Security → Accessibility**. Without that permission, Prompter reports an error instead of using stale clipboard content.
+Quick Capture requires macOS 10.15 or newer and Prompter to be allowed under **System Settings → Privacy & Security → Accessibility**. Prompter requests only event-posting access so it can press Copy for the user. Permission is requested from Settings, never silently at startup.
+
+Closing the main window keeps Prompter running so the shortcut remains available. Use `Command + Q` to quit completely.
 
 ## Run locally
 
@@ -32,13 +35,16 @@ The code is organized by responsibility:
 
 - `src/App.tsx` coordinates application state and feature composition only.
 - `src/features/instructions` owns instruction models, validated storage, collection rules, and instruction UI.
-- `src/features/providers` owns provider metadata, the typed Tauri gateway, WebView lifecycle, clipboard capture, and prompt placement UI.
+- `src/features/providers` owns provider metadata, the typed Tauri gateway, WebView lifecycle, and prompt placement UI.
+- `src/features/quickCapture` owns versioned native contracts, runtime validation, durable event draining, selected-text state, and permission actions.
 - `src/features/settings` owns theme persistence and settings UI.
 - `src/shared` contains small reusable UI primitives.
 - `src-tauri/src/prompt.rs` owns prompt validation and composition.
 - `src-tauri/src/provider` owns provider configuration, safe WebView integration, request correlation, and the generic fill adapter.
-- `src-tauri/src/platform` isolates macOS-specific APIs.
-- `src-tauri/src/capture.rs` owns global shortcut and selected-text capture orchestration.
+- `src-tauri/src/platform` isolates provider WebView platform behavior.
+- `src-tauri/src/quick_capture` separates shortcut coordination, typed outcomes, deterministic capture logic, full-fidelity pasteboard transactions, and macOS permission APIs.
+
+Quick Capture logs registration state, outcome codes, and timings to the standard Tauri application log directory. Selected text and clipboard contents are never logged.
 
 Provider websites can change their editor DOM. Update each provider's selector list in `src-tauri/src/provider/mod.rs`, then run the adapter tests and manually verify both providers.
 

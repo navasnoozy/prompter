@@ -1,4 +1,8 @@
 import { Icon } from "../../shared/Icon";
+import {
+  DEFAULT_SHORTCUT_DISPLAY,
+  type QuickCaptureStatus,
+} from "../quickCapture/model";
 import type { InstructionPreset } from "./model";
 
 type InstructionSidebarProps = {
@@ -8,6 +12,7 @@ type InstructionSidebarProps = {
   onEdit: (instruction: InstructionPreset) => void;
   onOpenSettings: () => void;
   onSelect: (id: string) => void;
+  quickCaptureStatus: QuickCaptureStatus | null;
 };
 
 export function InstructionSidebar({
@@ -17,7 +22,18 @@ export function InstructionSidebar({
   onEdit,
   onOpenSettings,
   onSelect,
+  quickCaptureStatus,
 }: InstructionSidebarProps) {
+  const shortcutDisplay =
+    quickCaptureStatus?.shortcut.display ?? DEFAULT_SHORTCUT_DISPLAY;
+  const quickCaptureMessage = !quickCaptureStatus
+    ? "Checking setup…"
+    : quickCaptureStatus.registration === "unavailable"
+      ? "Shortcut unavailable. Open Settings."
+      : quickCaptureStatus.permission === "required"
+        ? "Permission required. Open Settings."
+        : "Prompter copies the selection and opens here.";
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -71,16 +87,21 @@ export function InstructionSidebar({
         </div>
       </section>
 
-      <div className="sidebar-tip">
+      <button
+        aria-label="Open Quick Capture settings"
+        className="sidebar-tip quick-capture-tip"
+        onClick={onOpenSettings}
+        type="button"
+      >
         <span className="tip-kicker">Quick capture</span>
         <strong>Select text, then press</strong>
         <div className="shortcut-row">
-          <kbd>⌘</kbd>
-          <kbd>⇧</kbd>
-          <kbd>P</kbd>
+          {shortcutDisplay.split(" ").map((key) => (
+            <kbd key={key}>{key}</kbd>
+          ))}
         </div>
-        <small>Select text first. Prompter copies it automatically.</small>
-      </div>
+        <small>{quickCaptureMessage}</small>
+      </button>
 
       <button
         className="nav-item settings-link"

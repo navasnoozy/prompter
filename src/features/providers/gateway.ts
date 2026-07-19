@@ -18,8 +18,6 @@ export const TAURI_COMMANDS = {
 } as const;
 
 export const TAURI_EVENTS = {
-  clipboardCaptured: "prompter://clipboard-captured",
-  clipboardError: "prompter://clipboard-error",
   promptFilled: "prompter://prompt-filled",
   providerError: "prompter://provider-error",
 } as const;

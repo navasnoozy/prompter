@@ -13,9 +13,9 @@ import type {
   PromptComposition,
   Provider,
 } from "./features/providers/model";
-import { useClipboardCapture } from "./features/providers/useClipboardCapture";
 import { useEmbeddedProvider } from "./features/providers/useEmbeddedProvider";
 import { usePromptPlacement } from "./features/providers/usePromptPlacement";
+import { useQuickCapture } from "./features/quickCapture/useQuickCapture";
 import { SettingsDialog } from "./features/settings/SettingsDialog";
 import { useTheme } from "./features/settings/useTheme";
 
@@ -29,9 +29,11 @@ function App() {
 
   const instructionLibrary = useInstructionLibrary();
   const { theme, setTheme } = useTheme();
-  const { sourceText, setSourceText, captureClipboard } = useClipboardCapture({
+  const quickCapture = useQuickCapture({
     onNotice: setNotice,
+    onPermissionRequired: () => setShowSettings(true),
   });
+  const { sourceText, setSourceText, captureClipboard } = quickCapture;
   const { hostRef, ensureProvider } = useEmbeddedProvider({
     provider,
     visible: editorTarget === null && !showSettings,
@@ -68,6 +70,7 @@ function App() {
         onEdit={setEditorTarget}
         onOpenSettings={() => setShowSettings(true)}
         onSelect={instructionLibrary.selectInstruction}
+        quickCaptureStatus={quickCapture.status}
         selectedId={instructionLibrary.selectedId}
       />
 
@@ -106,7 +109,14 @@ function App() {
       {showSettings && (
         <SettingsDialog
           onClose={() => setShowSettings(false)}
+          isRequestingPermission={quickCapture.isRequestingPermission}
+          isRetryingRegistration={quickCapture.isRetryingRegistration}
+          onOpenSystemSettings={() => void quickCapture.openSystemSettings()}
+          onRefreshQuickCapture={() => void quickCapture.refreshStatus()}
+          onRequestPermission={() => void quickCapture.requestPermission()}
+          onRetryRegistration={() => void quickCapture.retryRegistration()}
           onThemeChange={setTheme}
+          quickCaptureStatus={quickCapture.status}
           theme={theme}
         />
       )}

@@ -20,7 +20,8 @@
 .theme-dark .icon-button,
 .theme-dark .preset-row,
 .theme-dark .theme-options button,
-.theme-dark .secondary-button { color: #c4becd; border-color: #3a3545; background: #24212c; }
+.theme-dark .secondary-button,
+.theme-dark .settings-inline-button { color: #c4becd; border-color: #3a3545; background: #24212c; }
 .theme-dark .provider-button.selected,
 .theme-dark .theme-options button.selected,
 .theme-dark .preset-row.selected { color: #c9b9ff; border-color: #735ab2; background: #2d263d; }
@@ -37,8 +38,11 @@
 .theme-dark .provider-loading-placeholder p,
 .theme-dark .settings-section p { color: #918b9e; }
 .theme-dark .preset-modal { color: #eeeaf4; border-color: #403a4b; background: #1b1922; }
-.theme-dark .modal-actions { border-color: #34303f; }
+.theme-dark .modal-actions,
+.theme-dark .settings-divider { border-color: #34303f; background: #34303f; }
 .theme-dark .preset-modal label { color: #c8c2ce; }
+.theme-dark .quick-capture-check { border-color: #373240; background: #211e29; }
+.theme-dark .settings-shortcut { color: #d5cbea; border-color: #443b54; background: #282330; }
 
 @media (max-width: 680px) {
   .app-shell { display: block; }

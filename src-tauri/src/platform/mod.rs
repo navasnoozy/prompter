@@ -2,9 +2,7 @@
 mod macos;
 
 #[cfg(target_os = "macos")]
-pub(crate) use macos::{
-    apply_provider_corner_radius, clipboard_change_count, copy_current_selection,
-};
+pub(crate) use macos::apply_provider_corner_radius;
 
 #[cfg(target_os = "macos")]
 pub(crate) fn provider_y_position(y: f64) -> f64 {
