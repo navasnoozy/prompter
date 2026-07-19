@@ -41,7 +41,8 @@
 .theme-dark .modal-actions,
 .theme-dark .settings-divider { border-color: #34303f; background: #34303f; }
 .theme-dark .preset-modal label { color: #c8c2ce; }
-.theme-dark .quick-capture-check { border-color: #373240; background: #211e29; }
+.theme-dark .quick-capture-check,
+.theme-dark .settings-preference-row { border-color: #373240; background: #211e29; }
 .theme-dark .settings-shortcut { color: #d5cbea; border-color: #443b54; background: #282330; }
 
 @media (max-width: 680px) {

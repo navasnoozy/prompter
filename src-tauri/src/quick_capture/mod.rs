@@ -9,15 +9,14 @@ use std::{
         Arc, Mutex, RwLock,
     },
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use log::{error, info, warn};
-use tauri::{
-    plugin::TauriPlugin, AppHandle, Emitter, Manager, Runtime, State, WebviewWindow,
-    WebviewWindowBuilder,
-};
+use tauri::{plugin::TauriPlugin, AppHandle, Emitter, ExitRequestApi, Manager, Runtime, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutEvent, ShortcutState};
+
+use crate::app_lifecycle::{self, ActivationSource};
 
 use self::{
     macos::MacCaptureBackend,
@@ -31,11 +30,26 @@ use self::{
 
 const READY_EVENT: &str = "prompter://quick-capture-ready";
 const MAX_PENDING_OUTCOMES: usize = 8;
+const EXIT_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+const EXIT_WAIT_POLL: Duration = Duration::from_millis(10);
+
+#[derive(Debug, Default)]
+struct CaptureState {
+    in_progress: bool,
+    shutting_down: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptureBlocked {
+    Busy,
+    ShuttingDown,
+}
 
 pub(crate) struct QuickCaptureCoordinator {
     registration: RwLock<ShortcutRegistrationState>,
     registration_gate: Mutex<()>,
-    in_progress: Arc<AtomicBool>,
+    capture_state: Arc<Mutex<CaptureState>>,
+    exit_waiter_started: AtomicBool,
     request_sequence: AtomicU64,
     pending_outcomes: Mutex<VecDeque<CaptureOutcome>>,
 }
@@ -45,7 +59,8 @@ impl Default for QuickCaptureCoordinator {
         Self {
             registration: RwLock::new(ShortcutRegistrationState::Unavailable),
             registration_gate: Mutex::new(()),
-            in_progress: Arc::new(AtomicBool::new(false)),
+            capture_state: Arc::new(Mutex::new(CaptureState::default())),
+            exit_waiter_started: AtomicBool::new(false),
             request_sequence: AtomicU64::new(1),
             pending_outcomes: Mutex::new(VecDeque::new()),
         }
@@ -67,13 +82,37 @@ impl QuickCaptureCoordinator {
         }
     }
 
-    fn try_begin_capture(&self) -> Option<CaptureLease> {
-        self.in_progress
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .ok()
-            .map(|_| CaptureLease {
-                in_progress: Arc::clone(&self.in_progress),
-            })
+    fn try_begin_capture(&self) -> Result<CaptureLease, CaptureBlocked> {
+        let mut state = self
+            .capture_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.shutting_down {
+            return Err(CaptureBlocked::ShuttingDown);
+        }
+        if state.in_progress {
+            return Err(CaptureBlocked::Busy);
+        }
+        state.in_progress = true;
+        Ok(CaptureLease {
+            capture_state: Arc::clone(&self.capture_state),
+        })
+    }
+
+    fn begin_shutdown(&self) -> bool {
+        let mut state = self
+            .capture_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.shutting_down = true;
+        state.in_progress
+    }
+
+    fn capture_in_progress(&self) -> bool {
+        self.capture_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .in_progress
     }
 
     fn next_request_id(&self) -> String {
@@ -105,13 +144,17 @@ impl QuickCaptureCoordinator {
     }
 }
 
+#[derive(Debug)]
 struct CaptureLease {
-    in_progress: Arc<AtomicBool>,
+    capture_state: Arc<Mutex<CaptureState>>,
 }
 
 impl Drop for CaptureLease {
     fn drop(&mut self) {
-        self.in_progress.store(false, Ordering::Release);
+        self.capture_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .in_progress = false;
     }
 }
 
@@ -126,40 +169,6 @@ pub(crate) fn initialize<R: Runtime>(app: &AppHandle<R>) {
         "event=shortcut_registration state={:?}",
         status.registration
     );
-}
-
-pub(crate) fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let window = match app.get_webview_window("main") {
-        Some(window) => window,
-        None => recreate_main_window(app)?,
-    };
-    reveal_window(&window)
-}
-
-fn recreate_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<WebviewWindow<R>, String> {
-    let config = app
-        .config()
-        .app
-        .windows
-        .iter()
-        .find(|config| config.label == "main")
-        .ok_or_else(|| "main window configuration not found".to_string())?;
-
-    info!(
-        target: "prompter::lifecycle",
-        "event=main_window_recovery action=recreate"
-    );
-    WebviewWindowBuilder::from_config(app, config)
-        .and_then(WebviewWindowBuilder::build)
-        .map_err(|error| error.to_string())
-}
-
-fn reveal_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    window
-        .show()
-        .and_then(|_| window.unminimize())
-        .and_then(|_| window.set_focus())
-        .map_err(|error| error.to_string())
 }
 
 fn register_shortcut<R: Runtime>(app: &AppHandle<R>) -> QuickCaptureStatus {
@@ -199,12 +208,22 @@ fn handle_shortcut<R: Runtime>(
     }
 
     let coordinator = app.state::<QuickCaptureCoordinator>();
-    let Some(lease) = coordinator.try_begin_capture() else {
-        info!(
-            target: "prompter::quick_capture",
-            "event=capture_coalesced reason=already_in_progress"
-        );
-        return;
+    let lease = match coordinator.try_begin_capture() {
+        Ok(lease) => lease,
+        Err(CaptureBlocked::Busy) => {
+            info!(
+                target: "prompter::quick_capture",
+                "event=capture_coalesced reason=already_in_progress"
+            );
+            return;
+        }
+        Err(CaptureBlocked::ShuttingDown) => {
+            info!(
+                target: "prompter::quick_capture",
+                "event=capture_ignored reason=application_shutting_down"
+            );
+            return;
+        }
     };
 
     let app = app.clone();
@@ -226,7 +245,9 @@ fn process_capture<R: Runtime>(app: AppHandle<R>, _lease: CaptureLease) {
     let result = capture_selection(&MacCaptureBackend);
 
     let mut window_warning = None;
-    if let Err(window_error) = show_main_window(&app) {
+    if let Err(window_error) =
+        app_lifecycle::request_activation(&app, ActivationSource::QuickCapture)
+    {
         warn!(
             target: "prompter::quick_capture",
             "event=window_reveal_failed request_id={request_id} reason={window_error}"
@@ -349,6 +370,71 @@ pub(crate) fn take_quick_capture_outcomes(
     coordinator.take_outcomes()
 }
 
+pub(crate) fn defer_exit_if_capturing<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let coordinator = app.state::<QuickCaptureCoordinator>();
+    if !coordinator.begin_shutdown() {
+        info!(
+            target: "prompter::lifecycle",
+            "event=quit outcome=proceed capture_in_progress=false"
+        );
+        return false;
+    }
+
+    if coordinator.exit_waiter_started.swap(true, Ordering::AcqRel) {
+        return true;
+    }
+
+    let app_handle = app.clone();
+    match thread::Builder::new()
+        .name("prompter-exit-waiter".into())
+        .spawn(move || {
+            let started = Instant::now();
+            while started.elapsed() < EXIT_WAIT_TIMEOUT {
+                if !app_handle
+                    .state::<QuickCaptureCoordinator>()
+                    .capture_in_progress()
+                {
+                    info!(
+                        target: "prompter::lifecycle",
+                        "event=quit outcome=deferred_then_proceed duration_ms={}",
+                        started.elapsed().as_millis()
+                    );
+                    app_handle.exit(0);
+                    return;
+                }
+                thread::sleep(EXIT_WAIT_POLL);
+            }
+
+            warn!(
+                target: "prompter::lifecycle",
+                "event=quit outcome=forced_after_timeout timeout_ms={}",
+                EXIT_WAIT_TIMEOUT.as_millis()
+            );
+            app_handle.exit(0);
+        }) {
+        Ok(_) => {
+            info!(
+                target: "prompter::lifecycle",
+                "event=quit outcome=deferred capture_in_progress=true"
+            );
+            true
+        }
+        Err(error) => {
+            error!(
+                target: "prompter::lifecycle",
+                "event=quit outcome=waiter_spawn_failed reason={error}"
+            );
+            false
+        }
+    }
+}
+
+pub(crate) fn handle_exit_requested<R: Runtime>(app: &AppHandle<R>, api: &ExitRequestApi) {
+    if defer_exit_if_capturing(app) {
+        api.prevent_exit();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,9 +446,32 @@ mod tests {
             .try_begin_capture()
             .expect("first capture should acquire the gate");
 
-        assert!(coordinator.try_begin_capture().is_none());
+        assert_eq!(
+            coordinator
+                .try_begin_capture()
+                .expect_err("capture must coalesce"),
+            CaptureBlocked::Busy
+        );
         drop(lease);
-        assert!(coordinator.try_begin_capture().is_some());
+        assert!(coordinator.try_begin_capture().is_ok());
+    }
+
+    #[test]
+    fn shutdown_rejects_new_captures_and_reports_active_work() {
+        let coordinator = QuickCaptureCoordinator::default();
+        let lease = coordinator
+            .try_begin_capture()
+            .expect("capture should start before shutdown");
+
+        assert!(coordinator.begin_shutdown());
+        assert_eq!(
+            coordinator
+                .try_begin_capture()
+                .expect_err("shutdown must reject captures"),
+            CaptureBlocked::ShuttingDown
+        );
+        drop(lease);
+        assert!(!coordinator.capture_in_progress());
     }
 
     #[test]

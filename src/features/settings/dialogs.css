@@ -64,6 +64,54 @@
   margin: 20px 0;
   background: #eeeaf2;
 }
+.settings-preference-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid #e8e3ed;
+  border-radius: 11px;
+  background: #fbfafc;
+}
+.settings-preference-row > div { min-width: 0; }
+.settings-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid #d6d0dc;
+  border-radius: 999px;
+  background: #ded9e3;
+  cursor: pointer;
+  transition: background .16s ease, border-color .16s ease;
+}
+.settings-switch span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(30, 24, 39, .25);
+  transition: transform .16s ease;
+}
+.settings-switch.enabled {
+  border-color: var(--purple);
+  background: var(--purple);
+}
+.settings-switch.enabled span { transform: translateX(16px); }
+.settings-switch:focus-visible {
+  outline: 3px solid rgba(108, 77, 216, .22);
+  outline-offset: 2px;
+}
+.settings-switch:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+.settings-switch.updating:disabled { cursor: wait; }
 .settings-section-heading {
   display: flex;
   align-items: flex-start;

@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   type RefObject,
@@ -81,6 +80,15 @@ export function useEmbeddedProvider({
     let disposed = false;
     let animationFrame = 0;
 
+    if (!visible) {
+      void providerGateway
+        .setVisibility(provider, false)
+        .catch((error) => onNotice(String(error)));
+      return () => {
+        disposed = true;
+      };
+    }
+
     const showProvider = async () => {
       try {
         await ensureProvider();
@@ -113,13 +121,7 @@ export function useEmbeddedProvider({
       window.removeEventListener("resize", resizeProvider);
       window.cancelAnimationFrame(animationFrame);
     };
-  }, [ensureProvider, onNotice, provider, readBounds]);
-
-  useEffect(() => {
-    void providerGateway
-      .setVisibility(provider, visible)
-      .catch((error) => onNotice(String(error)));
-  }, [onNotice, provider, visible]);
+  }, [ensureProvider, onNotice, provider, readBounds, visible]);
 
   return { hostRef, ensureProvider };
 }

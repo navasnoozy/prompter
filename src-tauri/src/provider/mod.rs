@@ -9,9 +9,8 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, State, Url, WebviewUrl,
 };
 
-use crate::platform;
+use crate::{platform, MAIN_WINDOW_LABEL};
 
-const MAIN_WINDOW_LABEL: &str = "main";
 const MIN_PROVIDER_SIZE: f64 = 240.0;
 const MAX_REQUEST_ID_LENGTH: usize = 128;
 const MAX_BRIDGE_MESSAGE_LENGTH: usize = 600;

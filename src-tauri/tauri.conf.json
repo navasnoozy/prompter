@@ -12,12 +12,14 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Prompter",
         "width": 1380,
         "height": 850,
         "minWidth": 1000,
         "minHeight": 780,
-        "center": true
+        "center": true,
+        "visible": false
       }
     ],
     "security": {

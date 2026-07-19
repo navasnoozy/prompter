@@ -1,5 +1,6 @@
 import { Icon } from "../../shared/Icon";
 import { ModalBackdrop } from "../../shared/ModalBackdrop";
+import type { LaunchAtLoginState } from "../lifecycle/model";
 import type { QuickCaptureStatus } from "../quickCapture/model";
 import type { AppTheme } from "./useTheme";
 
@@ -7,9 +8,12 @@ const TITLE_ID = "settings-title";
 
 type SettingsDialogProps = {
   theme: AppTheme;
-  onClose: () => void;
+  launchAtLogin: LaunchAtLoginState | null;
+  isUpdatingLaunchAtLogin: boolean;
   isRequestingPermission: boolean;
   isRetryingRegistration: boolean;
+  onClose: () => void;
+  onLaunchAtLoginChange: (enabled: boolean) => void;
   onOpenSystemSettings: () => void;
   onRefreshQuickCapture: () => void;
   onRequestPermission: () => void;
@@ -20,9 +24,12 @@ type SettingsDialogProps = {
 
 export function SettingsDialog({
   theme,
-  onClose,
+  launchAtLogin,
+  isUpdatingLaunchAtLogin,
   isRequestingPermission,
   isRetryingRegistration,
+  onClose,
+  onLaunchAtLoginChange,
   onOpenSystemSettings,
   onRefreshQuickCapture,
   onRequestPermission,
@@ -33,6 +40,8 @@ export function SettingsDialog({
   const registrationReady =
     quickCaptureStatus?.registration === "registered";
   const permissionReady = quickCaptureStatus?.permission === "granted";
+  const launchAtLoginEnabled = launchAtLogin === "enabled";
+  const launchAtLoginUnavailable = launchAtLogin === "unavailable";
 
   return (
     <ModalBackdrop onClose={onClose}>
@@ -76,6 +85,46 @@ export function SettingsDialog({
               type="button"
             >
               <Icon name="moon" size={16} /> Dark
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-divider" />
+
+        <div className="settings-section background-settings">
+          <div>
+            <strong>Background behaviour</strong>
+            <p>
+              Closing the window keeps Quick Capture ready. Press ⌘ Q to quit
+              Prompter completely.
+            </p>
+          </div>
+
+          <div className="settings-preference-row">
+            <div>
+              <strong>Launch at login</strong>
+              <p>
+                {launchAtLoginUnavailable
+                  ? "Launch at Login is currently unavailable. Prompter otherwise works normally."
+                  : "Start quietly in the background when you sign in to your Mac. Keep Prompter in Applications for reliable startup."}
+              </p>
+            </div>
+            <button
+              aria-checked={launchAtLoginEnabled}
+              aria-label="Launch Prompter at login"
+              className={`settings-switch ${launchAtLoginEnabled ? "enabled" : ""} ${isUpdatingLaunchAtLogin || launchAtLogin === null ? "updating" : ""}`}
+              disabled={
+                launchAtLogin === null ||
+                launchAtLoginUnavailable ||
+                isUpdatingLaunchAtLogin
+              }
+              onClick={() =>
+                onLaunchAtLoginChange(!launchAtLoginEnabled)
+              }
+              role="switch"
+              type="button"
+            >
+              <span aria-hidden="true" />
             </button>
           </div>
         </div>

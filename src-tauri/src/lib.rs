@@ -1,9 +1,17 @@
+#[cfg(target_os = "macos")]
+mod app_lifecycle;
 mod platform;
 mod prompt;
 mod provider;
 #[cfg(target_os = "macos")]
 mod quick_capture;
 
+pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
+
+#[cfg(target_os = "macos")]
+use app_lifecycle::{
+    get_app_lifecycle_status, set_launch_at_login, ActivationSource, AppLifecycleCoordinator,
+};
 use prompt::compose_prompt;
 use provider::{
     fill_provider_prompt, resize_provider_webview, set_provider_visibility, show_provider_webview,
@@ -21,13 +29,8 @@ pub fn run() {
     let builder = tauri::Builder::default();
 
     #[cfg(target_os = "macos")]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-        if let Err(error) = quick_capture::show_main_window(app) {
-            log::warn!(
-                target: "prompter::lifecycle",
-                "event=single_instance_focus_failed reason={error}"
-            );
-        }
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        app_lifecycle::handle_second_instance(app, &args);
     }));
 
     let builder = builder
@@ -57,30 +60,29 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             read_clipboard_text,
             #[cfg(target_os = "macos")]
-            take_quick_capture_outcomes
+            take_quick_capture_outcomes,
+            #[cfg(target_os = "macos")]
+            get_app_lifecycle_status,
+            #[cfg(target_os = "macos")]
+            set_launch_at_login
         ])
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]
-            if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    if let Err(error) = window.hide() {
-                        log::warn!(
-                            target: "prompter::lifecycle",
-                            "event=window_hide_failed reason={error}"
-                        );
-                    }
-                }
-            }
+            app_lifecycle::handle_window_event(window, event);
         })
         .setup(|app| {
             #[cfg(target_os = "macos")]
-            quick_capture::initialize(app.handle());
+            {
+                let autostart_available = app_lifecycle::install_autostart_plugin(app.handle());
+                app_lifecycle::initialize(app.handle(), autostart_available);
+                quick_capture::initialize(app.handle());
+            }
             Ok(())
         });
 
     #[cfg(target_os = "macos")]
     let builder = builder
+        .manage(AppLifecycleCoordinator::default())
         .manage(QuickCaptureCoordinator::default())
         .plugin(quick_capture::shortcut_plugin());
 
@@ -90,17 +92,23 @@ pub fn run() {
 
     app.run(|app, event| {
         #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Reopen {
-            has_visible_windows: false,
-            ..
-        } = event
-        {
-            if let Err(error) = quick_capture::show_main_window(app) {
-                log::warn!(
-                    target: "prompter::lifecycle",
-                    "event=dock_reopen_failed reason={error}"
-                );
+        match event {
+            tauri::RunEvent::Reopen { .. } => {
+                if let Err(error) =
+                    app_lifecycle::request_activation(app, ActivationSource::DockReopen)
+                {
+                    log::warn!(
+                        target: "prompter::lifecycle",
+                        "event=dock_reopen_failed reason={error}"
+                    );
+                }
             }
+            tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } => {
+                quick_capture::handle_exit_requested(app, &api);
+            }
+            _ => {}
         }
     });
 }

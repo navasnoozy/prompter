@@ -7,6 +7,7 @@ import type {
   InstructionPreset,
 } from "./features/instructions/model";
 import { useInstructionLibrary } from "./features/instructions/useInstructionLibrary";
+import { useAppLifecycle } from "./features/lifecycle/useAppLifecycle";
 import { PromptDock } from "./features/providers/PromptDock";
 import { ProviderBrowser } from "./features/providers/ProviderBrowser";
 import type {
@@ -29,6 +30,7 @@ function App() {
 
   const instructionLibrary = useInstructionLibrary();
   const { theme, setTheme } = useTheme();
+  const appLifecycle = useAppLifecycle({ onNotice: setNotice });
   const quickCapture = useQuickCapture({
     onNotice: setNotice,
     onPermissionRequired: () => setShowSettings(true),
@@ -36,7 +38,10 @@ function App() {
   const { sourceText, setSourceText, captureClipboard } = quickCapture;
   const { hostRef, ensureProvider } = useEmbeddedProvider({
     provider,
-    visible: editorTarget === null && !showSettings,
+    visible:
+      appLifecycle.status?.mainWindowVisible === true &&
+      editorTarget === null &&
+      !showSettings,
     onNotice: setNotice,
   });
   const { isWorking, placePrompt } = usePromptPlacement({
@@ -108,9 +113,14 @@ function App() {
 
       {showSettings && (
         <SettingsDialog
-          onClose={() => setShowSettings(false)}
+          isUpdatingLaunchAtLogin={appLifecycle.isUpdatingLaunchAtLogin}
           isRequestingPermission={quickCapture.isRequestingPermission}
           isRetryingRegistration={quickCapture.isRetryingRegistration}
+          launchAtLogin={appLifecycle.status?.launchAtLogin ?? null}
+          onClose={() => setShowSettings(false)}
+          onLaunchAtLoginChange={(enabled) =>
+            void appLifecycle.setLaunchAtLogin(enabled)
+          }
           onOpenSystemSettings={() => void quickCapture.openSystemSettings()}
           onRefreshQuickCapture={() => void quickCapture.refreshStatus()}
           onRequestPermission={() => void quickCapture.requestPermission()}
