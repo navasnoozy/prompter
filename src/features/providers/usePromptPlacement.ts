@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createId } from "../../shared/ids";
 import { providerGateway } from "./gateway";
 import {
   getProviderLabel,
@@ -28,7 +35,9 @@ export function usePromptPlacement({
   const [isWorking, setIsWorking] = useState(false);
   const pendingRef = useRef<PendingRequest | null>(null);
   const currentProviderRef = useRef(provider);
-  currentProviderRef.current = provider;
+  useLayoutEffect(() => {
+    currentProviderRef.current = provider;
+  });
 
   const clearPending = useCallback((requestId?: string) => {
     const pending = pendingRef.current;
@@ -94,7 +103,7 @@ export function usePromptPlacement({
 
       clearPending();
       setIsWorking(true);
-      const requestId = crypto.randomUUID();
+      const requestId = createId();
       pendingRef.current = { provider, requestId };
 
       try {

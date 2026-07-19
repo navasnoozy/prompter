@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use super::model::{CaptureErrorCode, CaptureWarningCode};
+use crate::prompt::MAX_PROMPT_BYTES;
 
-pub(crate) const MAX_CAPTURE_BYTES: usize = 1_048_576;
+pub(crate) const MAX_CAPTURE_BYTES: usize = MAX_PROMPT_BYTES;
 pub(crate) const CLIPBOARD_CHANGE_TIMEOUT: Duration = Duration::from_millis(1_500);
 pub(crate) const SHORTCUT_RELEASE_TIMEOUT: Duration = Duration::from_millis(1_000);
 
@@ -12,7 +13,6 @@ pub(crate) trait ClipboardSnapshot {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BackendFailure {
-    ClipboardUnavailable,
     ClipboardTooLarge,
     ShortcutKeysHeld,
     CopyFailed,
@@ -109,9 +109,7 @@ pub(crate) fn validate_text(text: String) -> Result<String, CaptureErrorCode> {
 
 fn map_backend_failure(failure: BackendFailure) -> CaptureErrorCode {
     match failure {
-        BackendFailure::ClipboardUnavailable | BackendFailure::RestoreFailed => {
-            CaptureErrorCode::ClipboardUnavailable
-        }
+        BackendFailure::RestoreFailed => CaptureErrorCode::ClipboardUnavailable,
         BackendFailure::ClipboardTooLarge => CaptureErrorCode::ClipboardTooLarge,
         BackendFailure::ShortcutKeysHeld => CaptureErrorCode::ShortcutKeysHeld,
         BackendFailure::CopyFailed => CaptureErrorCode::CopyFailed,

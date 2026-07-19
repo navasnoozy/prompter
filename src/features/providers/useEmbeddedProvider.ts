@@ -32,8 +32,12 @@ export function useEmbeddedProvider({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const currentProviderRef = useRef(provider);
   const visibleRef = useRef(visible);
-  currentProviderRef.current = provider;
-  visibleRef.current = visible;
+  // Declared before the main layout effect so the refs are current by the
+  // time it (and its async continuations) read them.
+  useLayoutEffect(() => {
+    currentProviderRef.current = provider;
+    visibleRef.current = visible;
+  });
   const pendingShowRef = useRef<{
     provider: Provider;
     promise: Promise<void>;

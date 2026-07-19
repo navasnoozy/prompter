@@ -1,5 +1,9 @@
 use serde::Deserialize;
 
+/// Upper bound for any prompt Prompter composes or places, shared with the
+/// Quick Capture selection limit so every text path enforces the same cap.
+pub(crate) const MAX_PROMPT_BYTES: usize = 1_048_576;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PromptInput {
@@ -21,6 +25,11 @@ impl PromptInput {
 
         if text.is_empty() {
             return Err("Add some text to rewrite first.".into());
+        }
+
+        let combined_length = before_text.len() + text.len() + after_text.len();
+        if combined_length > MAX_PROMPT_BYTES {
+            return Err("The prompt is too large to place. Shorten the text and try again.".into());
         }
 
         if after_text.is_empty() {
@@ -95,6 +104,16 @@ mod tests {
         assert_eq!(
             compose("  ", "Text", Some("Optional suffix")),
             Err("Choose an instruction first.".into())
+        );
+    }
+
+    #[test]
+    fn compose_prompt_rejects_oversized_input() {
+        let oversized = "x".repeat(super::MAX_PROMPT_BYTES + 1);
+
+        assert_eq!(
+            compose("Rewrite clearly", &oversized, None),
+            Err("The prompt is too large to place. Shorten the text and try again.".into())
         );
     }
 

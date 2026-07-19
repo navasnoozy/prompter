@@ -16,7 +16,10 @@ use log::{error, info, warn};
 use tauri::{plugin::TauriPlugin, AppHandle, Emitter, ExitRequestApi, Manager, Runtime, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutEvent, ShortcutState};
 
-use crate::app_lifecycle::{self, ActivationSource};
+use crate::{
+    app_lifecycle::{self, ActivationSource},
+    MAIN_WINDOW_LABEL,
+};
 
 use self::{
     macos::MacCaptureBackend,
@@ -300,7 +303,7 @@ fn process_capture<R: Runtime>(app: AppHandle<R>, _lease: CaptureLease) {
         version: CONTRACT_VERSION,
         request_id,
     };
-    if let Err(emit_error) = app.emit_to("main", READY_EVENT, event) {
+    if let Err(emit_error) = app.emit_to(MAIN_WINDOW_LABEL, READY_EVENT, event) {
         warn!(
             target: "prompter::quick_capture",
             "event=capture_notification_failed reason={emit_error} delivery=pending_queue"

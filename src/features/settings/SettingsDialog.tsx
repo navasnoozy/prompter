@@ -77,7 +77,7 @@ export function SettingsDialog({
               onClick={() => onThemeChange("light")}
               type="button"
             >
-              <Icon name="settings" size={16} /> Light
+              <Icon name="sun" size={16} /> Light
             </button>
             <button
               className={theme === "dark" ? "selected" : ""}

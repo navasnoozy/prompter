@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { isRecord } from "../../shared/contracts";
 import {
   isProvider,
   type PromptComposition,
@@ -21,10 +22,6 @@ export const TAURI_EVENTS = {
   promptFilled: "prompter://prompt-filled",
   providerError: "prompter://provider-error",
 } as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function parsePromptFilled(value: unknown): PromptFilledEvent | null {
   if (

@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/contracts";
 import { createDefaultInstructions } from "./defaults";
 import {
   INSTRUCTION_COLORS,
@@ -6,16 +7,13 @@ import {
 } from "./model";
 
 const STORAGE_KEY = "prompter.presets.v1";
+const SELECTION_KEY = "prompter.selection.v1";
 const STORAGE_VERSION = 2;
 
 type StoredInstructionLibrary = {
   version: typeof STORAGE_VERSION;
   instructions: InstructionPreset[];
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function isInstructionColor(value: unknown): value is InstructionColor {
   return (
@@ -130,5 +128,21 @@ export function saveInstructions(instructions: InstructionPreset[]): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+export function loadSelectedInstructionId(): string | undefined {
+  try {
+    return localStorage.getItem(SELECTION_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveSelectedInstructionId(id: string): void {
+  try {
+    localStorage.setItem(SELECTION_KEY, id);
+  } catch {
+    // Selection persistence is optional; the session keeps the choice.
   }
 }

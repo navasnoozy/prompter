@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type AppTheme = "light" | "dark";
 
@@ -6,10 +6,14 @@ const THEME_STORAGE_KEY = "prompter.theme.v1";
 
 function loadTheme(): AppTheme {
   try {
-    return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") return stored;
   } catch {
-    return "light";
+    // Fall through to the system preference.
   }
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }
 
 function saveTheme(theme: AppTheme): void {
@@ -21,12 +25,18 @@ function saveTheme(theme: AppTheme): void {
 }
 
 export function useTheme() {
-  const [theme, setTheme] = useState<AppTheme>(loadTheme);
+  const [theme, setThemeState] = useState<AppTheme>(loadTheme);
 
   useEffect(() => {
-    saveTheme(theme);
     document.documentElement.style.colorScheme = theme;
   }, [theme]);
+
+  // Persist only explicit choices so a fresh install keeps following the
+  // system appearance until the user picks a theme.
+  const setTheme = useCallback((next: AppTheme) => {
+    setThemeState(next);
+    saveTheme(next);
+  }, []);
 
   return { theme, setTheme };
 }

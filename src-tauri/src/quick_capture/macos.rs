@@ -42,6 +42,10 @@ struct PasteboardItemSnapshot {
 pub(crate) struct PasteboardSnapshot {
     change_count: isize,
     items: Vec<PasteboardItemSnapshot>,
+    /// False when an item exposed no readable representations (promised or
+    /// lazy data). The capture may proceed, but restoring would lose that
+    /// item, so restore is skipped and reported as a warning instead.
+    restorable: bool,
 }
 
 impl ClipboardSnapshot for PasteboardSnapshot {
@@ -177,6 +181,7 @@ fn snapshot_pasteboard(pasteboard: &NSPasteboard) -> Result<PasteboardSnapshot, 
 
     let mut total_bytes = 0usize;
     let mut snapshots = Vec::with_capacity(items.len());
+    let mut restorable = true;
 
     for item in items {
         let types = item.types().to_vec();
@@ -186,10 +191,13 @@ fn snapshot_pasteboard(pasteboard: &NSPasteboard) -> Result<PasteboardSnapshot, 
 
         let mut representations = Vec::with_capacity(types.len());
         for data_type in types {
-            let data = item
-                .dataForType(&data_type)
-                .ok_or(BackendFailure::ClipboardUnavailable)?
-                .to_vec();
+            // Promised or lazy representations can refuse to materialize
+            // (Finder file copies are the common case). Keep the readable
+            // types so the capture itself can still proceed.
+            let Some(data) = item.dataForType(&data_type) else {
+                continue;
+            };
+            let data = data.to_vec();
             total_bytes = total_bytes
                 .checked_add(data.len())
                 .ok_or(BackendFailure::ClipboardTooLarge)?;
@@ -202,12 +210,18 @@ fn snapshot_pasteboard(pasteboard: &NSPasteboard) -> Result<PasteboardSnapshot, 
                 data,
             });
         }
+
+        if representations.is_empty() {
+            restorable = false;
+            continue;
+        }
         snapshots.push(PasteboardItemSnapshot { representations });
     }
 
     Ok(PasteboardSnapshot {
         change_count,
         items: snapshots,
+        restorable,
     })
 }
 
@@ -224,6 +238,10 @@ fn restore_pasteboard(
     snapshot: PasteboardSnapshot,
     expected_change_count: isize,
 ) -> Result<RestoreDisposition, BackendFailure> {
+    if !snapshot.restorable {
+        return Err(BackendFailure::RestoreFailed);
+    }
+
     if pasteboard.changeCount() != expected_change_count {
         return Ok(RestoreDisposition::SkippedExternalChange);
     }
@@ -286,6 +304,7 @@ mod tests {
         let snapshot = snapshot_pasteboard(&pasteboard).expect("snapshot should succeed");
         let expected_snapshot = PasteboardSnapshot {
             change_count: snapshot.change_count,
+            restorable: true,
             items: vec![PasteboardItemSnapshot {
                 representations: vec![
                     PasteboardRepresentation {

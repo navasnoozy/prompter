@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   normalizeQuickCaptureError,
   quickCaptureGateway,
@@ -21,7 +27,9 @@ export function useQuickCapture({
   const callbacksRef = useRef({ onNotice, onPermissionRequired });
   const drainRequestedRef = useRef(false);
   const isDrainingRef = useRef(false);
-  callbacksRef.current = { onNotice, onPermissionRequired };
+  useLayoutEffect(() => {
+    callbacksRef.current = { onNotice, onPermissionRequired };
+  });
 
   const applyOutcome = useCallback((outcome: CaptureOutcome) => {
     if (outcome.kind === "success") {
@@ -98,6 +106,7 @@ export function useQuickCapture({
   }, [drainPendingOutcomes]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refreshStatus resolves asynchronously; this synchronizes native status on mount
     void refreshStatus();
     const handleFocus = () => void refreshStatus();
     window.addEventListener("focus", handleFocus);

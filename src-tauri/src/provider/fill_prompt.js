@@ -1,4 +1,10 @@
-async function ({ provider, requestId, displayName, selectors, prompt }) {
+(async function fillPrompt({
+  provider,
+  requestId,
+  displayName,
+  selectors,
+  prompt,
+}) {
   const pause = (milliseconds) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -58,13 +64,28 @@ async function ({ provider, requestId, displayName, selectors, prompt }) {
     try {
       inserted = document.execCommand("insertText", false, prompt);
     } catch {
-      inserted = false;
+      // execCommand may throw in some engines; treat it as not inserted.
     }
 
-    if (!inserted || !(editor.textContent || "").includes(prompt)) {
-      const paragraph = document.createElement("p");
-      paragraph.textContent = prompt;
-      editor.replaceChildren(paragraph);
+    // Rich editors turn newlines into block nodes whose textContent has no
+    // "\n", so the verification must ignore whitespace entirely.
+    const withoutWhitespace = (value) => value.replace(/\s+/g, "");
+    const editorHasPrompt = () =>
+      withoutWhitespace(editor.textContent || "").includes(
+        withoutWhitespace(prompt),
+      );
+
+    if (!inserted || !editorHasPrompt()) {
+      const paragraphs = prompt.split("\n").map((line) => {
+        const paragraph = document.createElement("p");
+        if (line) {
+          paragraph.textContent = line;
+        } else {
+          paragraph.appendChild(document.createElement("br"));
+        }
+        return paragraph;
+      });
+      editor.replaceChildren(...paragraphs);
       editor.dispatchEvent(
         new InputEvent("input", {
           bubbles: true,
@@ -78,4 +99,4 @@ async function ({ provider, requestId, displayName, selectors, prompt }) {
   editor.dispatchEvent(new Event("change", { bubbles: true }));
   editor.focus();
   signal("filled");
-}
+})

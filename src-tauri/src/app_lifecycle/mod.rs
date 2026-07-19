@@ -16,6 +16,11 @@ const VISIBILITY_EVENT: &str = "prompter://main-window-visibility";
 struct LifecycleState {
     ready: bool,
     pending_activation: bool,
+    /// True once the window has been presented through an activation and until
+    /// the red-close button hides the app. System-level hides (⌘H) and
+    /// minimize are intentionally not tracked: native child webviews of a
+    /// hidden window do not render, so the frontend contract only needs the
+    /// presented/red-closed distinction.
     visible: bool,
     autostart_available: bool,
 }

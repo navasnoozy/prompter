@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./styles/index.css";
 import { InstructionEditorDialog } from "./features/instructions/InstructionEditorDialog";
 import { InstructionSidebar } from "./features/instructions/InstructionSidebar";
@@ -14,6 +14,10 @@ import type {
   PromptComposition,
   Provider,
 } from "./features/providers/model";
+import {
+  loadStoredProvider,
+  saveStoredProvider,
+} from "./features/providers/storage";
 import { useEmbeddedProvider } from "./features/providers/useEmbeddedProvider";
 import { usePromptPlacement } from "./features/providers/usePromptPlacement";
 import { useQuickCapture } from "./features/quickCapture/useQuickCapture";
@@ -23,12 +27,21 @@ import { useTheme } from "./features/settings/useTheme";
 type EditorTarget = "new" | InstructionPreset | null;
 
 function App() {
-  const [provider, setProvider] = useState<Provider>("chatgpt");
+  const [provider, setProvider] = useState<Provider>(loadStoredProvider);
   const [notice, setNotice] = useState("Ready");
   const [editorTarget, setEditorTarget] = useState<EditorTarget>(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  const instructionLibrary = useInstructionLibrary();
+  useEffect(() => {
+    saveStoredProvider(provider);
+  }, [provider]);
+
+  const instructionLibrary = useInstructionLibrary({
+    onPersistError: () =>
+      setNotice(
+        "Instructions could not be saved. Changes may be lost when Prompter closes.",
+      ),
+  });
   const { theme, setTheme } = useTheme();
   const appLifecycle = useAppLifecycle({ onNotice: setNotice });
   const quickCapture = useQuickCapture({
@@ -56,7 +69,12 @@ function App() {
   };
 
   function saveInstruction(draft: InstructionDraft) {
-    instructionLibrary.saveInstruction(draft);
+    try {
+      instructionLibrary.saveInstruction(draft);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+      return;
+    }
     setEditorTarget(null);
     setNotice("Instruction saved");
   }

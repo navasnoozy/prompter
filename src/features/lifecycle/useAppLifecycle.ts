@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   appLifecycleGateway,
   normalizeAppLifecycleError,
@@ -14,7 +20,9 @@ export function useAppLifecycle({ onNotice }: UseAppLifecycleOptions) {
   const [isUpdatingLaunchAtLogin, setIsUpdatingLaunchAtLogin] =
     useState(false);
   const onNoticeRef = useRef(onNotice);
-  onNoticeRef.current = onNotice;
+  useLayoutEffect(() => {
+    onNoticeRef.current = onNotice;
+  });
 
   const refreshStatus = useCallback(async () => {
     try {

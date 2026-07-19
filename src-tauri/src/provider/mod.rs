@@ -1,3 +1,4 @@
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -9,12 +10,27 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, State, Url, WebviewUrl,
 };
 
-use crate::{platform, MAIN_WINDOW_LABEL};
+use crate::{platform, prompt::MAX_PROMPT_BYTES, MAIN_WINDOW_LABEL};
 
 const MIN_PROVIDER_SIZE: f64 = 240.0;
+const MAX_PROVIDER_SIZE: f64 = 20_000.0;
 const MAX_REQUEST_ID_LENGTH: usize = 128;
 const MAX_BRIDGE_MESSAGE_LENGTH: usize = 600;
 const FILL_PROMPT_SOURCE: &str = include_str!("fill_prompt.js");
+
+/// Sign-in providers the embedded panes may navigate to in addition to their
+/// own domain. Everything else opens in the user's default browser so an
+/// address-bar-less pane can never present an arbitrary site.
+const SHARED_AUTH_DOMAINS: &[&str] = &[
+    "accounts.google.com",
+    "accounts.youtube.com",
+    "appleid.apple.com",
+    "login.microsoftonline.com",
+    "login.live.com",
+];
+
+const CHATGPT_NAVIGATION_DOMAINS: &[&str] = &["chatgpt.com", "openai.com"];
+const GEMINI_NAVIGATION_DOMAINS: &[&str] = &["google.com"];
 
 const CHATGPT_EDITOR_SELECTORS: &[&str] = &[
     "#prompt-textarea",
@@ -65,6 +81,32 @@ impl Provider {
     fn accepts_fill_url(self, url: &Url) -> bool {
         url.scheme() == "https" && url.host_str() == Some(self.config().expected_fill_host)
     }
+
+    fn navigation_domains(self) -> &'static [&'static str] {
+        match self {
+            Self::Chatgpt => CHATGPT_NAVIGATION_DOMAINS,
+            Self::Gemini => GEMINI_NAVIGATION_DOMAINS,
+        }
+    }
+
+    fn accepts_navigation_url(self, url: &Url) -> bool {
+        if url.scheme() != "https" {
+            return false;
+        }
+        let Some(host) = url.host_str() else {
+            return false;
+        };
+
+        self.navigation_domains()
+            .iter()
+            .chain(SHARED_AUTH_DOMAINS)
+            .any(|domain| {
+                host == *domain
+                    || (host.len() > domain.len() + 1
+                        && host.ends_with(domain)
+                        && host.as_bytes()[host.len() - domain.len() - 1] == b'.')
+            })
+    }
 }
 
 impl FromStr for Provider {
@@ -106,6 +148,8 @@ impl ProviderBounds {
             || !self.height.is_finite()
             || self.width < MIN_PROVIDER_SIZE
             || self.height < MIN_PROVIDER_SIZE
+            || self.width > MAX_PROVIDER_SIZE
+            || self.height > MAX_PROVIDER_SIZE
         {
             return Err("The embedded browser area is not ready yet.".into());
         }
@@ -238,9 +282,12 @@ pub(crate) fn show_provider_webview(
         .filter(|candidate| *candidate != provider)
     {
         if let Some(webview) = app.get_webview(inactive_provider.config().webview_label) {
-            webview.hide().map_err(|error| {
-                format!("Could not hide the inactive provider browser: {error}")
-            })?;
+            if let Err(hide_error) = webview.hide() {
+                warn!(
+                    target: "prompter::provider",
+                    "event=inactive_provider_hide_failed reason={hide_error}"
+                );
+            }
         }
     }
 
@@ -274,15 +321,29 @@ pub(crate) fn show_provider_webview(
                 return false;
             }
 
-            matches!(url.scheme(), "https" | "about")
+            if url.scheme() == "about" {
+                return true;
+            }
+
+            if provider.accepts_navigation_url(url) {
+                return true;
+            }
+
+            open_url_externally(&bridge_app, url);
+            false
         })
         .on_new_window(move |url, _| {
-            if url.scheme() == "https" {
+            if provider.accepts_navigation_url(&url) {
                 if let Some(webview) = popup_app.get_webview(&popup_label) {
                     if let Err(error) = webview.navigate(url) {
-                        eprintln!("Could not open the provider page: {error}");
+                        warn!(
+                            target: "prompter::provider",
+                            "event=popup_navigation_failed reason={error}"
+                        );
                     }
                 }
+            } else {
+                open_url_externally(&popup_app, &url);
             }
             NewWindowResponse::Deny
         });
@@ -330,6 +391,35 @@ pub(crate) fn set_provider_visibility(
     Ok(())
 }
 
+/// Hands a URL the embedded pane may not display to the user's default
+/// browser. Content is never logged; only failure reasons are.
+fn open_url_externally(app: &AppHandle, url: &Url) {
+    if !matches!(url.scheme(), "https" | "http") {
+        warn!(
+            target: "prompter::provider",
+            "event=external_navigation_blocked scheme={}",
+            url.scheme()
+        );
+        return;
+    }
+
+    let target = url.to_string();
+    let dispatched = app.run_on_main_thread(move || {
+        if let Err(open_error) = platform::open_in_default_browser(&target) {
+            warn!(
+                target: "prompter::provider",
+                "event=external_open_failed reason={open_error}"
+            );
+        }
+    });
+    if let Err(dispatch_error) = dispatched {
+        warn!(
+            target: "prompter::provider",
+            "event=external_open_dispatch_failed reason={dispatch_error}"
+        );
+    }
+}
+
 #[tauri::command]
 pub(crate) fn fill_provider_prompt(
     app: AppHandle,
@@ -338,6 +428,10 @@ pub(crate) fn fill_provider_prompt(
     prompt: String,
     request_id: String,
 ) -> Result<(), String> {
+    if prompt.len() > MAX_PROMPT_BYTES {
+        return Err("The prompt is too large to place. Shorten the text and try again.".into());
+    }
+
     let config = provider.config();
     let webview = app
         .get_webview(config.webview_label)
@@ -447,7 +541,10 @@ fn handle_provider_bridge_url(app: &AppHandle, expected_provider: Provider, url:
     let event = match parse_bridge_event(url, expected_provider) {
         Ok(event) => event,
         Err(error) => {
-            eprintln!("Ignored an invalid provider bridge response: {error}");
+            warn!(
+                target: "prompter::provider",
+                "event=bridge_response_invalid reason={error}"
+            );
             return;
         }
     };
@@ -456,11 +553,18 @@ fn handle_provider_bridge_url(app: &AppHandle, expected_provider: Provider, url:
     match lifecycle.complete_request(event.provider, &event.request_id) {
         Ok(true) => {}
         Ok(false) => {
-            eprintln!("Ignored a stale provider bridge response.");
+            warn!(
+                target: "prompter::provider",
+                "event=bridge_response_stale request_id={}",
+                event.request_id
+            );
             return;
         }
         Err(error) => {
-            eprintln!("Could not validate the provider bridge response: {error}");
+            error!(
+                target: "prompter::provider",
+                "event=bridge_response_validation_failed reason={error}"
+            );
             return;
         }
     }
@@ -486,7 +590,10 @@ fn handle_provider_bridge_url(app: &AppHandle, expected_provider: Provider, url:
     };
 
     if let Err(error) = result {
-        eprintln!("Could not deliver the provider bridge response: {error}");
+        error!(
+            target: "prompter::provider",
+            "event=bridge_response_delivery_failed reason={error}"
+        );
     }
 }
 
@@ -494,7 +601,7 @@ fn handle_provider_bridge_url(app: &AppHandle, expected_provider: Provider, url:
 mod tests {
     use super::{
         parse_bridge_event, provider_fill_script, BridgeEvent, BridgeEventKind, Provider,
-        ProviderBounds, MIN_PROVIDER_SIZE,
+        ProviderBounds, MAX_PROVIDER_SIZE, MIN_PROVIDER_SIZE,
     };
     use std::collections::HashSet;
     use tauri::Url;
@@ -562,8 +669,50 @@ mod tests {
                 height: 0.0,
                 ..valid
             },
+            ProviderBounds {
+                width: MAX_PROVIDER_SIZE + 1.0,
+                ..valid
+            },
+            ProviderBounds {
+                height: f64::MAX,
+                ..valid
+            },
         ] {
             assert!(invalid.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn navigation_policy_limits_the_pane_to_provider_and_auth_hosts() {
+        let allowed = [
+            (Provider::Chatgpt, "https://chatgpt.com/c/example"),
+            (Provider::Chatgpt, "https://auth.openai.com/authorize"),
+            (Provider::Chatgpt, "https://accounts.google.com/signin"),
+            (Provider::Chatgpt, "https://appleid.apple.com/auth"),
+            (Provider::Gemini, "https://gemini.google.com/app"),
+            (Provider::Gemini, "https://accounts.google.com/signin"),
+            (Provider::Gemini, "https://accounts.youtube.com/accounts"),
+        ];
+        for (provider, url) in allowed {
+            assert!(
+                provider.accepts_navigation_url(&Url::parse(url).unwrap()),
+                "{url} should be allowed in the {provider:?} pane"
+            );
+        }
+
+        let denied = [
+            (Provider::Chatgpt, "https://example.com/"),
+            (Provider::Chatgpt, "https://evil-chatgpt.com/"),
+            (Provider::Chatgpt, "https://chatgpt.com.evil.com/"),
+            (Provider::Chatgpt, "http://chatgpt.com/"),
+            (Provider::Gemini, "https://chatgpt.com/"),
+            (Provider::Gemini, "https://notgoogle.com/"),
+        ];
+        for (provider, url) in denied {
+            assert!(
+                !provider.accepts_navigation_url(&Url::parse(url).unwrap()),
+                "{url} must not be allowed in the {provider:?} pane"
+            );
         }
     }
 

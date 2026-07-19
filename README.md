@@ -10,13 +10,18 @@ Prompter is a macOS-first Tauri 2 companion for rewriting selected text with a u
 - Prompter never presses Send. The user reviews and sends the prompt manually.
 - Responses and provider Copy buttons remain inside ChatGPT or Gemini.
 - Before inserting user text, the native layer verifies that the WebView is on the expected provider host.
+- The embedded panes only display the provider itself and known sign-in hosts. Every other link opens in the default browser, so the address-bar-less pane can never show an arbitrary site.
 - Quick Capture (`Command + Shift + P`) copies selected text from the active macOS app, restores the previous clipboard exactly, and opens Prompter. It never sends the text automatically.
 
 ## Requirements
 
+Prompter is macOS-only: Quick Capture, the window lifecycle, and the embedded provider panes all depend on AppKit, and the code makes no attempt to build elsewhere.
+
 - macOS with Xcode Command Line Tools
 - Node.js 20.19+, 22.12+, or 24+
 - Rust 1.77.2 or newer
+
+The `tauri` crate is pinned to a tested minor release because the embedded multi-webview API requires Tauri's `unstable` feature, which has no stability guarantee across releases. Re-verify both providers manually after bumping it.
 
 Quick Capture requires macOS 10.15 or newer and Prompter to be allowed under **System Settings → Privacy & Security → Accessibility**. Prompter requests only event-posting access so it can press Copy for the user. Permission is requested from Settings, never silently at startup.
 
@@ -58,8 +63,6 @@ Provider websites can change their editor DOM. Update each provider's selector l
 
 ```bash
 npm run check
-cd src-tauri
-cargo fmt -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
 ```
+
+This single gate runs the frontend tests, ESLint, the TypeScript build, and the Rust checks (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`). The GitHub Actions workflow in `.github/workflows/ci.yml` runs the same steps on every push and pull request.

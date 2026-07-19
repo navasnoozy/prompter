@@ -1,3 +1,5 @@
+import { isNonEmptyString, isRecord } from "../../shared/contracts";
+
 export const QUICK_CAPTURE_CONTRACT_VERSION = 1;
 export const DEFAULT_SHORTCUT_DISPLAY = "⌘ ⇧ P";
 
@@ -87,10 +89,6 @@ const WARNING_CODES = new Set<CaptureWarningCode>([
   "window_unavailable",
 ]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function isContractVersion(value: unknown): value is 1 {
   return value === QUICK_CAPTURE_CONTRACT_VERSION;
 }
@@ -107,10 +105,6 @@ function isRegistrationState(
 
 function isDuration(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
 }
 
 function parseWarning(value: unknown): CaptureWarning | null {

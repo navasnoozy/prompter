@@ -1,3 +1,5 @@
+import { isNonEmptyString, isRecord } from "../../shared/contracts";
+
 export const APP_LIFECYCLE_CONTRACT_VERSION = 1;
 
 export type LaunchAtLoginState = "enabled" | "disabled" | "unavailable";
@@ -19,16 +21,8 @@ export type AppLifecycleError = {
   message: string;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function isVersion(value: unknown): value is 1 {
   return value === APP_LIFECYCLE_CONTRACT_VERSION;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
 }
 
 function isLaunchAtLoginState(value: unknown): value is LaunchAtLoginState {

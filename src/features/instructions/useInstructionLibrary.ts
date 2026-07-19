@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createId } from "../../shared/ids";
 import {
   addInstruction,
   createInstructionLibrary,
@@ -9,16 +10,37 @@ import {
 } from "./collection";
 import type { InstructionDraft, InstructionPreset } from "./model";
 import { normalizeInstructionDraft } from "./model";
-import { loadInstructions, saveInstructions } from "./storage";
+import {
+  loadInstructions,
+  loadSelectedInstructionId,
+  saveInstructions,
+  saveSelectedInstructionId,
+} from "./storage";
 
-export function useInstructionLibrary() {
+type UseInstructionLibraryOptions = {
+  onPersistError?: () => void;
+};
+
+export function useInstructionLibrary({
+  onPersistError,
+}: UseInstructionLibraryOptions = {}) {
   const [library, setLibrary] = useState(() =>
-    createInstructionLibrary(loadInstructions()),
+    createInstructionLibrary(loadInstructions(), loadSelectedInstructionId()),
   );
+  const onPersistErrorRef = useRef(onPersistError);
+  useLayoutEffect(() => {
+    onPersistErrorRef.current = onPersistError;
+  });
 
   useEffect(() => {
-    saveInstructions(library.instructions);
+    if (!saveInstructions(library.instructions)) {
+      onPersistErrorRef.current?.();
+    }
   }, [library.instructions]);
+
+  useEffect(() => {
+    saveSelectedInstructionId(library.selectedId);
+  }, [library.selectedId]);
 
   const selectedInstruction = useMemo(
     () => getSelectedInstruction(library),
@@ -33,7 +55,7 @@ export function useInstructionLibrary() {
 
     const instruction: InstructionPreset = {
       ...normalized,
-      id: normalized.id ?? crypto.randomUUID(),
+      id: normalized.id ?? createId(),
     };
 
     setLibrary((current) =>

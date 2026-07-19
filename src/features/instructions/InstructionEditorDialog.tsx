@@ -25,6 +25,7 @@ export function InstructionEditorDialog({
       ? { ...instruction }
       : { name: "", beforeText: "", afterText: "", color: "rose" },
   );
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -111,13 +112,18 @@ export function InstructionEditorDialog({
             <button
               className="danger-button"
               disabled={!canDelete}
-              onClick={() => onDelete(instruction.id)}
+              onClick={() =>
+                confirmingDelete
+                  ? onDelete(instruction.id)
+                  : setConfirmingDelete(true)
+              }
               title={
                 canDelete ? undefined : "Prompter needs at least one instruction"
               }
               type="button"
             >
-              <Icon name="trash" size={16} /> Delete
+              <Icon name="trash" size={16} />{" "}
+              {confirmingDelete ? "Confirm delete" : "Delete"}
             </button>
           )}
           <span />

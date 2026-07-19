@@ -7,6 +7,9 @@ import {
   type Provider,
 } from "./model";
 
+// Mirrors the native byte cap conservatively; the backend stays authoritative.
+const MAX_PROMPT_CHARS = 1_000_000;
+
 type PromptDockProps = {
   isWorking: boolean;
   composition: PromptComposition;
@@ -27,6 +30,7 @@ export function PromptDock({
   onSourceTextChange,
 }: PromptDockProps) {
   const sourceText = composition.text;
+  const isTooLarge = sourceText.length > MAX_PROMPT_CHARS;
 
   return (
     <section className="bottom-dock" aria-label="Prepare prompt">
@@ -62,7 +66,10 @@ export function PromptDock({
           value={sourceText}
         />
         <div className="dock-text-meta">
-          <span>{sourceText.length} characters</span>
+          <span>
+            {sourceText.length.toLocaleString()} characters
+            {isTooLarge && " — too large to place"}
+          </span>
           {sourceText && (
             <button onClick={() => onSourceTextChange("")} type="button">
               Clear
@@ -73,7 +80,7 @@ export function PromptDock({
 
       <button
         className="dock-place-button"
-        disabled={isWorking || !sourceText.trim()}
+        disabled={isWorking || !sourceText.trim() || isTooLarge}
         onClick={() => onPlacePrompt(composition)}
         type="button"
       >

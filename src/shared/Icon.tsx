@@ -22,6 +22,9 @@ const ICON_PATHS = {
   close: <path d="m6 6 12 12M18 6 6 18" />,
   check: <path d="m5 12 4 4L19 6" />,
   moon: <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z" />,
+  sun: (
+    <path d="M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0-14v2m0 16v2m10-10h-2M4 12H2m17.07-7.07-1.41 1.41M6.34 17.66l-1.41 1.41m14.14 0-1.41-1.41M6.34 6.34 4.93 4.93" />
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICON_PATHS;

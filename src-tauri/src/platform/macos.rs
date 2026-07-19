@@ -1,7 +1,8 @@
 use std::ptr::NonNull;
 
 use objc2::MainThreadMarker;
-use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSWorkspace};
+use objc2_foundation::{NSString, NSURL};
 use tauri::{Runtime, Window};
 
 pub(super) const PROVIDER_CONTENT_OFFSET_Y: f64 = 32.0;
@@ -38,6 +39,18 @@ fn behavior_for_active_space(
     behavior.remove(NSWindowCollectionBehavior::CanJoinAllSpaces);
     behavior.insert(NSWindowCollectionBehavior::MoveToActiveSpace);
     behavior
+}
+
+pub(crate) fn open_in_default_browser(url: &str) -> Result<(), String> {
+    let value = NSString::from_str(url);
+    let native_url =
+        NSURL::URLWithString(&value).ok_or_else(|| "the URL could not be parsed".to_string())?;
+
+    if NSWorkspace::sharedWorkspace().openURL(&native_url) {
+        Ok(())
+    } else {
+        Err("macOS declined to open the URL".into())
+    }
 }
 
 pub(crate) fn apply_provider_corner_radius(webview: &tauri::Webview) -> Result<(), String> {
