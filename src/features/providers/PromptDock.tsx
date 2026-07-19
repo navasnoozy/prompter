@@ -1,46 +1,31 @@
 import { Icon } from "../../shared/Icon";
-import {
-  getProviderLabel,
-  PROVIDERS,
-  PROVIDER_ORDER,
-  type PromptComposition,
-  type Provider,
-} from "./model";
+import { registerPromptInput, useCaptureStore } from "../quickCapture/store";
+import { placeCurrentPrompt } from "./placement";
+import { getProviderLabel, PROVIDERS, PROVIDER_ORDER } from "./model";
+import { useProviderStore } from "./store";
 
 // Mirrors the native byte cap conservatively; the backend stays authoritative.
 const MAX_PROMPT_CHARS = 1_000_000;
 
-type PromptDockProps = {
-  isWorking: boolean;
-  composition: PromptComposition;
-  provider: Provider;
-  onCaptureClipboard: () => void;
-  onPlacePrompt: (composition: PromptComposition) => void;
-  onProviderChange: (provider: Provider) => void;
-  onSourceTextChange: (text: string) => void;
-};
-
-export function PromptDock({
-  isWorking,
-  composition,
-  provider,
-  onCaptureClipboard,
-  onPlacePrompt,
-  onProviderChange,
-  onSourceTextChange,
-}: PromptDockProps) {
-  const sourceText = composition.text;
+export function PromptDock() {
+  const provider = useProviderStore((state) => state.provider);
+  const setProvider = useProviderStore((state) => state.setProvider);
+  const isPlacing = useProviderStore((state) => state.isPlacing);
+  const sourceText = useCaptureStore((state) => state.sourceText);
+  const setSourceText = useCaptureStore((state) => state.setSourceText);
+  const captureClipboard = useCaptureStore((state) => state.captureClipboard);
   const isTooLarge = sourceText.length > MAX_PROMPT_CHARS;
 
   return (
     <section className="bottom-dock" aria-label="Prepare prompt">
       <div className="dock-provider-options" aria-label="AI provider">
-        {PROVIDER_ORDER.map((option) => (
+        {PROVIDER_ORDER.map((option, index) => (
           <button
             aria-pressed={provider === option}
             className={`provider-button ${provider === option ? "selected" : ""}`}
             key={option}
-            onClick={() => onProviderChange(option)}
+            onClick={() => setProvider(option)}
+            title={`Switch with ⌘${index + 1}`}
             type="button"
           >
             <span className={`provider-logo ${option}`}>
@@ -55,14 +40,15 @@ export function PromptDock({
       <div className="dock-text-box">
         <div className="dock-text-heading">
           <span>Your text</span>
-          <button onClick={onCaptureClipboard} type="button">
+          <button onClick={() => void captureClipboard()} type="button">
             <Icon name="clipboard" size={14} /> Capture clipboard
           </button>
         </div>
         <textarea
           aria-label="Text to rewrite"
-          onChange={(event) => onSourceTextChange(event.target.value)}
+          onChange={(event) => setSourceText(event.target.value)}
           placeholder="Paste or type the text you want to rewrite…"
+          ref={registerPromptInput}
           value={sourceText}
         />
         <div className="dock-text-meta">
@@ -71,7 +57,7 @@ export function PromptDock({
             {isTooLarge && " — too large to place"}
           </span>
           {sourceText && (
-            <button onClick={() => onSourceTextChange("")} type="button">
+            <button onClick={() => setSourceText("")} type="button">
               Clear
             </button>
           )}
@@ -80,18 +66,16 @@ export function PromptDock({
 
       <button
         className="dock-place-button"
-        disabled={isWorking || !sourceText.trim() || isTooLarge}
-        onClick={() => onPlacePrompt(composition)}
+        disabled={isPlacing || !sourceText.trim() || isTooLarge}
+        onClick={() => void placeCurrentPrompt()}
         type="button"
       >
         <Icon name="sparkle" size={19} />
         <span>
           <strong>
-            {isWorking
-              ? "Placing…"
-              : `Place in ${getProviderLabel(provider)}`}
+            {isPlacing ? "Placing…" : `Place in ${getProviderLabel(provider)}`}
           </strong>
-          <small>You press Send</small>
+          <small>⌘ ⏎ · You press Send</small>
         </span>
         <Icon name="chevron" size={16} />
       </button>

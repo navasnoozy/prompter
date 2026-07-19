@@ -6,7 +6,19 @@ const host = env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [["babel-plugin-react-compiler", {}]],
+      },
+    }),
+  ],
+
+  // The only runtime is macOS WKWebView; ES2022 enables top-level await in
+  // the bootstrap.
+  build: {
+    target: "es2022",
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

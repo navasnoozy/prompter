@@ -3,16 +3,17 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isRecord } from "../../shared/contracts";
 import {
   isProvider,
+  parseProviderCommandError,
   type PromptComposition,
   type PromptFilledEvent,
   type Provider,
   type ProviderBounds,
+  type ProviderCommandError,
   type ProviderErrorEvent,
 } from "./model";
 
 export const TAURI_COMMANDS = {
-  composePrompt: "compose_prompt",
-  fillProviderPrompt: "fill_provider_prompt",
+  placePrompt: "place_prompt",
   resizeProviderWebview: "resize_provider_webview",
   setProviderVisibility: "set_provider_visibility",
   showProviderWebview: "show_provider_webview",
@@ -45,6 +46,16 @@ function parseProviderError(value: unknown): ProviderErrorEvent | null {
   return { ...filled, message: value.message };
 }
 
+export function normalizeProviderError(error: unknown): ProviderCommandError {
+  return (
+    parseProviderCommandError(error) ?? {
+      version: 1,
+      code: "internal",
+      message: "Could not reach the provider. Please try again.",
+    }
+  );
+}
+
 export const providerGateway = {
   show(provider: Provider, bounds: ProviderBounds): Promise<void> {
     return invoke(TAURI_COMMANDS.showProviderWebview, { provider, bounds });
@@ -58,18 +69,14 @@ export const providerGateway = {
     return invoke(TAURI_COMMANDS.setProviderVisibility, { provider, visible });
   },
 
-  composePrompt(composition: PromptComposition): Promise<string> {
-    return invoke<string>(TAURI_COMMANDS.composePrompt, composition);
-  },
-
-  fillPrompt(
+  placePrompt(
     provider: Provider,
-    prompt: string,
+    composition: PromptComposition,
     requestId: string,
   ): Promise<void> {
-    return invoke(TAURI_COMMANDS.fillProviderPrompt, {
+    return invoke(TAURI_COMMANDS.placePrompt, {
       provider,
-      prompt,
+      composition,
       requestId,
     });
   },

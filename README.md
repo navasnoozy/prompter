@@ -12,6 +12,9 @@ Prompter is a macOS-first Tauri 2 companion for rewriting selected text with a u
 - Before inserting user text, the native layer verifies that the WebView is on the expected provider host.
 - The embedded panes only display the provider itself and known sign-in hosts. Every other link opens in the default browser, so the address-bar-less pane can never show an arbitrary site.
 - Quick Capture (`Command + Shift + P`) copies selected text from the active macOS app, restores the previous clipboard exactly, and opens Prompter. It never sends the text automatically.
+- A menu-bar item keeps the background app discoverable: open the window or quit from there at any time.
+- Keyboard-first: `Command + Return` places the prompt, `Command + 1` / `Command + 2` switch between ChatGPT and Gemini, and a finished Quick Capture focuses the text box directly.
+- Instructions, theme, and selections persist in a durable settings file in Application Support (WKWebView storage can be purged by macOS; the settings file cannot). Existing localStorage data migrates automatically on first launch.
 
 ## Requirements
 
@@ -38,18 +41,18 @@ npm run tauri dev
 
 ## Architecture
 
-The code is organized by responsibility:
+The code is organized by responsibility. Frontend state lives in per-feature zustand stores; components subscribe with narrow selectors, hooks only bind native events to stores, and `App.tsx` is a composition root with no state props. The React Compiler handles memoization at build time.
 
-- `src/App.tsx` coordinates application state and feature composition only.
-- `src/features/instructions` owns instruction models, validated storage, collection rules, and instruction UI.
-- `src/features/lifecycle` owns the versioned native lifecycle contract, Launch at Login state, window-visibility events, and frontend lifecycle coordination.
-- `src/features/providers` owns provider metadata, the typed Tauri gateway, WebView lifecycle, and prompt placement UI.
-- `src/features/quickCapture` owns versioned native contracts, runtime validation, durable event draining, selected-text state, and permission actions.
-- `src/features/settings` owns theme persistence and settings UI.
-- `src/shared` contains small reusable UI primitives.
-- `src-tauri/src/prompt.rs` owns prompt validation and composition.
-- `src-tauri/src/app_lifecycle` owns the single permanent native window, close-to-background behavior, activation serialization, Dock/second-launch handling, and Launch at Login integration.
-- `src-tauri/src/provider` owns provider configuration, safe WebView integration, request correlation, and the generic fill adapter.
+- `src/App.tsx` mounts the binder hooks and lays out the shell; no data flows through it.
+- `src/features/instructions` owns instruction models, the tolerant payload decoder, collection rules, the instruction store, and instruction UI.
+- `src/features/lifecycle` owns the versioned native lifecycle contract, the lifecycle store, and window-visibility binding.
+- `src/features/providers` owns provider metadata, the typed Tauri gateway with structured `{version, code, message}` errors, the provider store, the placement request machine (`placement.ts`), and WebView lifecycle.
+- `src/features/quickCapture` owns versioned native contracts, runtime validation, the capture store with durable event draining, and permission actions.
+- `src/features/settings` owns the theme/dialog store and settings UI.
+- `src/shared` contains UI primitives, the notice store (severity + auto-expiry), the durable settings gateway (`tauri-plugin-store`), the boot loader with legacy-localStorage migration, and the keyboard shortcut layer.
+- `src-tauri/src/prompt.rs` owns prompt validation and composition; `place_prompt` composes and fills in a single IPC round trip.
+- `src-tauri/src/app_lifecycle` owns the single permanent native window, close-to-background behavior, activation serialization, Dock/second-launch/tray handling, and Launch at Login integration.
+- `src-tauri/src/provider` is split by concern: `config` (providers + navigation allowlists), `geometry` (bounds + derived title-bar offset), `bridge` (`prompter://` response correlation), `commands` (webview commands), `error` (the typed command error contract).
 - `src-tauri/src/platform` isolates native window and provider WebView platform behavior.
 - `src-tauri/src/quick_capture` separates shortcut coordination, typed outcomes, deterministic capture logic, full-fidelity pasteboard transactions, and macOS permission APIs.
 

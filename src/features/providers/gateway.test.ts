@@ -1,31 +1,35 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { providerGateway, TAURI_COMMANDS } from "./gateway";
+import {
+  normalizeProviderError,
+  providerGateway,
+  TAURI_COMMANDS,
+} from "./gateway";
 import type { PromptComposition } from "./model";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-describe("provider prompt composition contract", () => {
+describe("provider gateway", () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
   });
 
-  it("passes named before, text, and after fields to Tauri", async () => {
+  it("places a prompt through the single merged command", async () => {
     const composition: PromptComposition = {
       beforeText: "Rewrite clearly.",
       text: "Original text",
       afterText: "Return only the result.",
     };
-    vi.mocked(invoke).mockResolvedValueOnce("Composed prompt");
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
 
-    await expect(providerGateway.composePrompt(composition)).resolves.toBe(
-      "Composed prompt",
-    );
-    expect(invoke).toHaveBeenCalledWith(
-      TAURI_COMMANDS.composePrompt,
+    await providerGateway.placePrompt("chatgpt", composition, "request-1");
+
+    expect(invoke).toHaveBeenCalledWith(TAURI_COMMANDS.placePrompt, {
+      provider: "chatgpt",
       composition,
-    );
+      requestId: "request-1",
+    });
   });
 
   it("keeps an omitted after-text instruction explicit as an empty string", async () => {
@@ -34,14 +38,43 @@ describe("provider prompt composition contract", () => {
       text: "Original text",
       afterText: "",
     };
-    vi.mocked(invoke).mockResolvedValueOnce("Composed prompt");
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
 
-    await providerGateway.composePrompt(composition);
+    await providerGateway.placePrompt("gemini", composition, "request-2");
 
-    expect(invoke).toHaveBeenCalledWith(TAURI_COMMANDS.composePrompt, {
-      beforeText: "Fix grammar.",
-      text: "Original text",
-      afterText: "",
+    expect(invoke).toHaveBeenCalledWith(TAURI_COMMANDS.placePrompt, {
+      provider: "gemini",
+      composition: {
+        beforeText: "Fix grammar.",
+        text: "Original text",
+        afterText: "",
+      },
+      requestId: "request-2",
     });
+  });
+
+  it("passes through structured provider command errors", () => {
+    const structured = {
+      version: 1,
+      code: "wrong_host",
+      message: "ChatGPT is showing a sign-in or external page.",
+    };
+
+    expect(normalizeProviderError(structured)).toEqual(structured);
+  });
+
+  it("normalizes unknown errors to a safe internal fallback", () => {
+    for (const malformed of [
+      null,
+      "raw string error",
+      { version: 99, code: "wrong_host", message: "x" },
+      { version: 1, code: "unknown_code", message: "x" },
+      { version: 1, code: "wrong_host", message: "   " },
+    ]) {
+      const normalized = normalizeProviderError(malformed);
+      expect(normalized.version).toBe(1);
+      expect(normalized.code).toBe("internal");
+      expect(normalized.message.length).toBeGreaterThan(0);
+    }
   });
 });

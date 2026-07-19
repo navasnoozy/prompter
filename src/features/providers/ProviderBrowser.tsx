@@ -1,13 +1,14 @@
 import type { RefObject } from "react";
 import { Icon } from "../../shared/Icon";
-import { getProviderLabel, type Provider } from "./model";
+import { getProviderLabel } from "./model";
+import { useProviderStore } from "./store";
 
 type ProviderBrowserProps = {
   hostRef: RefObject<HTMLDivElement | null>;
-  provider: Provider;
 };
 
-export function ProviderBrowser({ hostRef, provider }: ProviderBrowserProps) {
+export function ProviderBrowser({ hostRef }: ProviderBrowserProps) {
+  const provider = useProviderStore((state) => state.provider);
   const label = getProviderLabel(provider);
 
   return (

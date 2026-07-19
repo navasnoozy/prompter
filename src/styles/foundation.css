@@ -48,6 +48,13 @@ textarea:focus-visible {
 
 h2, p { margin-top: 0; }
 .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #46b87b; box-shadow: 0 0 0 3px rgba(70,184,123,0.12); }
+.status-dot.info { background: #8b8798; box-shadow: 0 0 0 3px rgba(139,135,152,0.14); }
+.status-dot.progress { background: var(--purple); box-shadow: 0 0 0 3px rgba(110,81,217,0.16); animation: status-pulse 1.2s ease-in-out infinite; }
+.status-dot.error { background: #e5484d; box-shadow: 0 0 0 3px rgba(229,72,77,0.15); }
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
 
 .error-boundary {
   min-height: 100vh;
