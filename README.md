@@ -4,9 +4,9 @@ Prompter is a macOS-first Tauri 2 companion for rewriting selected text with a u
 
 ## How it works
 
-- Instruction presets are editable and stored locally.
+- Instruction presets are editable and stored locally. Each preset has a required instruction before the user's text and an optional instruction after it.
 - ChatGPT and Gemini run inside an embedded provider WebView.
-- Prompter composes the selected instruction and source text, then places the prompt into the provider's real input box.
+- Prompter sends exactly the before-text instruction, the user's text, and the optional after-text instruction in that order, then places the result into the provider's real input box.
 - Prompter never presses Send. The user reviews and sends the prompt manually.
 - Responses and provider Copy buttons remain inside ChatGPT or Gemini.
 - Before inserting user text, the native layer verifies that the WebView is on the expected provider host.

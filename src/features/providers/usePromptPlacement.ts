@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { providerGateway } from "./gateway";
-import { getProviderLabel, type Provider } from "./model";
+import {
+  getProviderLabel,
+  type PromptComposition,
+  type Provider,
+} from "./model";
 
 const REQUEST_TIMEOUT_MS = 12_000;
 
@@ -82,8 +86,8 @@ export function usePromptPlacement({
   }, [clearPending, provider]);
 
   const placePrompt = useCallback(
-    async (instruction: string, sourceText: string) => {
-      if (!sourceText.trim()) {
+    async (composition: PromptComposition) => {
+      if (!composition.text.trim()) {
         onNotice("Add or capture some text first");
         return;
       }
@@ -102,10 +106,7 @@ export function usePromptPlacement({
           return;
         }
 
-        const prompt = await providerGateway.composePrompt(
-          instruction,
-          sourceText,
-        );
+        const prompt = await providerGateway.composePrompt(composition);
         if (
           currentProviderRef.current !== provider ||
           pendingRef.current?.requestId !== requestId

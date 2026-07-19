@@ -11,7 +11,8 @@ export type InstructionColor = (typeof INSTRUCTION_COLORS)[number];
 export type InstructionPreset = {
   id: string;
   name: string;
-  instruction: string;
+  beforeText: string;
+  afterText: string;
   color: InstructionColor;
 };
 
@@ -31,6 +32,7 @@ export function normalizeInstructionDraft(
     ...draft,
     id: draft.id?.trim() || undefined,
     name: draft.name.trim(),
-    instruction: draft.instruction.trim(),
+    beforeText: draft.beforeText.trim(),
+    afterText: draft.afterText.trim(),
   };
 }

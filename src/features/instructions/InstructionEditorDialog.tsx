@@ -23,12 +23,12 @@ export function InstructionEditorDialog({
   const [draft, setDraft] = useState<InstructionDraft>(() =>
     instruction
       ? { ...instruction }
-      : { name: "", instruction: "", color: "rose" },
+      : { name: "", beforeText: "", afterText: "", color: "rose" },
   );
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!draft.name.trim() || !draft.instruction.trim()) return;
+    if (!draft.name.trim() || !draft.beforeText.trim()) return;
     onSave(draft);
   }
 
@@ -37,7 +37,7 @@ export function InstructionEditorDialog({
       <form
         aria-labelledby={TITLE_ID}
         aria-modal="true"
-        className="preset-modal"
+        className="preset-modal instruction-editor-modal"
         onSubmit={submit}
         role="dialog"
       >
@@ -73,18 +73,36 @@ export function InstructionEditorDialog({
             value={draft.name}
           />
         </label>
+        <p className="instruction-editor-helper">
+          Prompter places your text between these instructions.
+        </p>
         <label>
-          Instruction sent to AI
+          Instruction before text
           <textarea
+            className="instruction-before-text"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
-                instruction: event.target.value,
+                beforeText: event.target.value,
               }))
             }
             placeholder="Rewrite the text in a friendly and helpful tone…"
             required
-            value={draft.instruction}
+            value={draft.beforeText}
+          />
+        </label>
+        <label>
+          Instruction after text (optional)
+          <textarea
+            className="instruction-after-text"
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                afterText: event.target.value,
+              }))
+            }
+            placeholder="Example: Return only the rewritten text."
+            value={draft.afterText}
           />
         </label>
 

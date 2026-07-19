@@ -27,8 +27,8 @@ export function useInstructionLibrary() {
 
   function saveInstruction(draft: InstructionDraft): InstructionPreset {
     const normalized = normalizeInstructionDraft(draft);
-    if (!normalized.name || !normalized.instruction) {
-      throw new Error("An instruction needs both a name and AI instruction.");
+    if (!normalized.name || !normalized.beforeText) {
+      throw new Error("An instruction needs both a name and before-text instruction.");
     }
 
     const instruction: InstructionPreset = {

@@ -3,28 +3,31 @@ import {
   getProviderLabel,
   PROVIDERS,
   PROVIDER_ORDER,
+  type PromptComposition,
   type Provider,
 } from "./model";
 
 type PromptDockProps = {
   isWorking: boolean;
+  composition: PromptComposition;
   provider: Provider;
-  sourceText: string;
   onCaptureClipboard: () => void;
-  onPlacePrompt: () => void;
+  onPlacePrompt: (composition: PromptComposition) => void;
   onProviderChange: (provider: Provider) => void;
   onSourceTextChange: (text: string) => void;
 };
 
 export function PromptDock({
   isWorking,
+  composition,
   provider,
-  sourceText,
   onCaptureClipboard,
   onPlacePrompt,
   onProviderChange,
   onSourceTextChange,
 }: PromptDockProps) {
+  const sourceText = composition.text;
+
   return (
     <section className="bottom-dock" aria-label="Prepare prompt">
       <div className="dock-provider-options" aria-label="AI provider">
@@ -71,7 +74,7 @@ export function PromptDock({
       <button
         className="dock-place-button"
         disabled={isWorking || !sourceText.trim()}
-        onClick={onPlacePrompt}
+        onClick={() => onPlacePrompt(composition)}
         type="button"
       >
         <Icon name="sparkle" size={19} />

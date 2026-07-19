@@ -28,6 +28,12 @@ export type ProviderBounds = {
   height: number;
 };
 
+export type PromptComposition = {
+  beforeText: string;
+  text: string;
+  afterText: string;
+};
+
 export type PromptFilledEvent = {
   provider: Provider;
   requestId: string;

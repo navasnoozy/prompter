@@ -6,7 +6,7 @@ import {
 } from "./model";
 
 const STORAGE_KEY = "prompter.presets.v1";
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 
 type StoredInstructionLibrary = {
   version: typeof STORAGE_VERSION;
@@ -24,29 +24,57 @@ function isInstructionColor(value: unknown): value is InstructionColor {
   );
 }
 
-function parseInstruction(value: unknown): InstructionPreset | null {
-  if (!isRecord(value)) return null;
-
+function parseBaseFields(value: Record<string, unknown>) {
   const id = typeof value.id === "string" ? value.id.trim() : "";
   const name = typeof value.name === "string" ? value.name.trim() : "";
-  const instruction =
-    typeof value.instruction === "string" ? value.instruction.trim() : "";
 
-  if (!id || !name || !instruction || !isInstructionColor(value.color)) {
-    return null;
-  }
-
-  return { id, name, instruction, color: value.color };
+  if (!id || !name || !isInstructionColor(value.color)) return null;
+  return { id, name, color: value.color };
 }
 
-function parseInstructionList(value: unknown): InstructionPreset[] {
+function parseVersionTwoInstruction(
+  value: unknown,
+): InstructionPreset | null {
+  if (!isRecord(value)) return null;
+
+  const base = parseBaseFields(value);
+  if (
+    typeof value.beforeText !== "string" ||
+    (value.afterText !== undefined && typeof value.afterText !== "string")
+  ) {
+    return null;
+  }
+  const beforeText =
+    value.beforeText.trim();
+  const afterText =
+    typeof value.afterText === "string" ? value.afterText.trim() : "";
+
+  if (!base || !beforeText) return null;
+  return { ...base, beforeText, afterText };
+}
+
+function migrateLegacyInstruction(value: unknown): InstructionPreset | null {
+  if (!isRecord(value)) return null;
+
+  const base = parseBaseFields(value);
+  const beforeText =
+    typeof value.instruction === "string" ? value.instruction.trim() : "";
+
+  if (!base || !beforeText) return null;
+  return { ...base, beforeText, afterText: "" };
+}
+
+function parseInstructionList(
+  value: unknown,
+  parseEntry: (entry: unknown) => InstructionPreset | null,
+): InstructionPreset[] {
   if (!Array.isArray(value)) return [];
 
   const seenIds = new Set<string>();
   const instructions: InstructionPreset[] = [];
 
   for (const entry of value) {
-    const instruction = parseInstruction(entry);
+    const instruction = parseEntry(entry);
     if (!instruction || seenIds.has(instruction.id)) continue;
     seenIds.add(instruction.id);
     instructions.push(instruction);
@@ -56,11 +84,27 @@ function parseInstructionList(value: unknown): InstructionPreset[] {
 }
 
 export function decodeStoredInstructions(value: unknown): InstructionPreset[] {
-  // The first release stored the array directly. Keep that format readable so
-  // existing custom instructions migrate without user action.
-  if (Array.isArray(value)) return parseInstructionList(value);
-  if (!isRecord(value) || value.version !== STORAGE_VERSION) return [];
-  return parseInstructionList(value.instructions);
+  // The first release stored its instruction array directly.
+  if (Array.isArray(value)) {
+    return parseInstructionList(value, migrateLegacyInstruction);
+  }
+  if (!isRecord(value)) return [];
+
+  if (value.version === 1) {
+    return parseInstructionList(
+      value.instructions ?? value.presets,
+      migrateLegacyInstruction,
+    );
+  }
+
+  if (value.version === STORAGE_VERSION) {
+    return parseInstructionList(
+      value.instructions,
+      parseVersionTwoInstruction,
+    );
+  }
+
+  return [];
 }
 
 export function loadInstructions(): InstructionPreset[] {

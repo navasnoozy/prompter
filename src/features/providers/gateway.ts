@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   isProvider,
+  type PromptComposition,
   type PromptFilledEvent,
   type Provider,
   type ProviderBounds,
@@ -62,8 +63,8 @@ export const providerGateway = {
     return invoke(TAURI_COMMANDS.setProviderVisibility, { provider, visible });
   },
 
-  composePrompt(instruction: string, text: string): Promise<string> {
-    return invoke<string>(TAURI_COMMANDS.composePrompt, { instruction, text });
+  composePrompt(composition: PromptComposition): Promise<string> {
+    return invoke<string>(TAURI_COMMANDS.composePrompt, composition);
   },
 
   fillPrompt(

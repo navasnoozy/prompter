@@ -9,7 +9,10 @@ import type {
 import { useInstructionLibrary } from "./features/instructions/useInstructionLibrary";
 import { PromptDock } from "./features/providers/PromptDock";
 import { ProviderBrowser } from "./features/providers/ProviderBrowser";
-import type { Provider } from "./features/providers/model";
+import type {
+  PromptComposition,
+  Provider,
+} from "./features/providers/model";
 import { useClipboardCapture } from "./features/providers/useClipboardCapture";
 import { useEmbeddedProvider } from "./features/providers/useEmbeddedProvider";
 import { usePromptPlacement } from "./features/providers/usePromptPlacement";
@@ -39,6 +42,11 @@ function App() {
     ensureProvider,
     onNotice: setNotice,
   });
+  const promptComposition: PromptComposition = {
+    beforeText: instructionLibrary.selectedInstruction.beforeText,
+    text: sourceText,
+    afterText: instructionLibrary.selectedInstruction.afterText,
+  };
 
   function saveInstruction(draft: InstructionDraft) {
     instructionLibrary.saveInstruction(draft);
@@ -67,18 +75,13 @@ function App() {
         <ProviderBrowser hostRef={hostRef} provider={provider} />
 
         <PromptDock
+          composition={promptComposition}
           isWorking={isWorking}
           onCaptureClipboard={() => void captureClipboard()}
-          onPlacePrompt={() =>
-            void placePrompt(
-              instructionLibrary.selectedInstruction.instruction,
-              sourceText,
-            )
-          }
+          onPlacePrompt={(composition) => void placePrompt(composition)}
           onProviderChange={setProvider}
           onSourceTextChange={setSourceText}
           provider={provider}
-          sourceText={sourceText}
         />
 
         <footer aria-live="polite" className="status-bar">

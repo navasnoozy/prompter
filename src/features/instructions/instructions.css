@@ -169,3 +169,26 @@ kbd {
 .preset-icon.rose { color: #b95372; background: #fde9ef; }
 .edit-preset { width: 36px; border: 0; border-left: 1px solid transparent; color: #aaa4b1; background: transparent; cursor: pointer; }
 .edit-preset:hover { color: var(--purple); }
+
+.instruction-editor-modal {
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.instruction-editor-helper {
+  margin: 14px 0 2px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.instruction-editor-modal .instruction-before-text {
+  min-height: 92px;
+  max-height: 180px;
+}
+
+.instruction-editor-modal .instruction-after-text {
+  min-height: 72px;
+  max-height: 150px;
+}

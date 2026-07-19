@@ -12,14 +12,16 @@ import type { InstructionPreset } from "./model";
 const first: InstructionPreset = {
   id: "first",
   name: "First",
-  instruction: "First instruction",
+  beforeText: "First instruction",
+  afterText: "",
   color: "violet",
 };
 
 const second: InstructionPreset = {
   id: "second",
   name: "Second",
-  instruction: "Second instruction",
+  beforeText: "Second instruction",
+  afterText: "Return only the result.",
   color: "blue",
 };
 
