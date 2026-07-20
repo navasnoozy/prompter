@@ -9,12 +9,18 @@ type ProviderBrowserProps = {
 
 export function ProviderBrowser({ hostRef }: ProviderBrowserProps) {
   const provider = useProviderStore((state) => state.provider);
+  const panelOpen = useProviderStore((state) => state.panelOpen);
   const label = getProviderLabel(provider);
 
   return (
     <section className="browser-card" aria-label={`${label} browser`}>
       <div className="provider-webview-frame">
-        <div className="provider-loading-placeholder">
+        <div
+          aria-hidden={panelOpen}
+          aria-live="polite"
+          className="provider-loading-placeholder"
+          role="status"
+        >
           <span className="empty-orbit">
             <Icon name="sparkle" size={25} />
           </span>

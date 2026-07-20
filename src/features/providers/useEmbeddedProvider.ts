@@ -9,12 +9,12 @@ import { useInstructionStore } from "../instructions/store";
 import { useLifecycleStore } from "../lifecycle/store";
 import { useSettingsStore } from "../settings/store";
 import { providerGateway } from "./gateway";
+import { type Provider, type ProviderBounds } from "./model";
 import {
-  getProviderLabel,
-  type Provider,
-  type ProviderBounds,
-} from "./model";
-import { placementErrorMessage, registerEnsureProvider } from "./placement";
+  cancelCurrentPlacement,
+  placementErrorMessage,
+  registerEnsureProvider,
+} from "./placement";
 import { useProviderStore } from "./store";
 
 const MIN_PROVIDER_SIZE = 240;
@@ -94,8 +94,11 @@ export function useEmbeddedProvider(): UseEmbeddedProviderResult {
   useLayoutEffect(() => {
     let disposed = false;
     let animationFrame = 0;
+    let resizeErrorReported = false;
 
     if (!visible) {
+      cancelCurrentPlacement();
+      useProviderStore.setState({ panelOpen: false });
       void providerGateway
         .setVisibility(provider, false)
         .catch((error) => publishNotice("error", placementErrorMessage(error)));
@@ -110,10 +113,7 @@ export function useEmbeddedProvider(): UseEmbeddedProviderResult {
         const activeProvider = currentProviderRef.current;
         await providerGateway.setVisibility(activeProvider, visibleRef.current);
         if (!disposed && activeProvider === provider) {
-          publishNotice(
-            "success",
-            `${getProviderLabel(provider)} is ready inside Prompter`,
-          );
+          useProviderStore.setState({ panelOpen: visibleRef.current });
         }
       } catch (error) {
         if (!disposed) publishNotice("error", placementErrorMessage(error));
@@ -124,18 +124,28 @@ export function useEmbeddedProvider(): UseEmbeddedProviderResult {
       window.cancelAnimationFrame(animationFrame);
       animationFrame = window.requestAnimationFrame(() => {
         const bounds = readBounds();
-        if (bounds) void providerGateway.resize(provider, bounds);
+        if (bounds) {
+          void providerGateway.resize(provider, bounds).catch((error) => {
+            if (!disposed && !resizeErrorReported) {
+              resizeErrorReported = true;
+              publishNotice("error", placementErrorMessage(error));
+            }
+          });
+        }
       });
     };
 
     void showProvider();
-    const observer = new ResizeObserver(resizeProvider);
-    if (hostRef.current) observer.observe(hostRef.current);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(resizeProvider);
+    if (hostRef.current) observer?.observe(hostRef.current);
     window.addEventListener("resize", resizeProvider);
 
     return () => {
       disposed = true;
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener("resize", resizeProvider);
       window.cancelAnimationFrame(animationFrame);
     };

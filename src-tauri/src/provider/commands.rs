@@ -19,7 +19,6 @@ use super::{
 use crate::{platform, prompt::PromptInput, MAIN_WINDOW_LABEL};
 
 const FILL_PROMPT_SOURCE: &str = include_str!("fill_prompt.js");
-
 fn operation_failed(message: impl Into<String>) -> ProviderCommandError {
     ProviderCommandError::new(ProviderErrorCode::WebviewOperationFailed, message)
 }
@@ -27,7 +26,12 @@ fn operation_failed(message: impl Into<String>) -> ProviderCommandError {
 #[derive(Default)]
 pub(crate) struct ProviderLifecycle {
     creation_lock: Mutex<()>,
-    pending_requests: Mutex<HashMap<Provider, String>>,
+    request_states: Mutex<HashMap<Provider, ProviderRequestState>>,
+}
+
+enum ProviderRequestState {
+    Pending(String),
+    MustClose,
 }
 
 impl ProviderLifecycle {
@@ -48,10 +52,19 @@ impl ProviderLifecycle {
                 "The prompt request identifier is invalid.",
             ));
         }
-        self.pending_requests
+        let mut states = self
+            .request_states
             .lock()
-            .map_err(|_| operation_failed("The provider request manager is unavailable."))?
-            .insert(provider, request_id.to_string());
+            .map_err(|_| operation_failed("The provider request manager is unavailable."))?;
+        if matches!(states.get(&provider), Some(ProviderRequestState::MustClose)) {
+            return Err(operation_failed(
+                "The embedded provider page could not be closed safely. Reopen the provider before placing another prompt.",
+            ));
+        }
+        states.insert(
+            provider,
+            ProviderRequestState::Pending(request_id.to_string()),
+        );
         Ok(())
     }
 
@@ -60,26 +73,69 @@ impl ProviderLifecycle {
         provider: Provider,
         request_id: &str,
     ) -> Result<bool, ProviderCommandError> {
-        let mut requests = self
-            .pending_requests
+        let mut states = self
+            .request_states
             .lock()
             .map_err(|_| operation_failed("The provider request manager is unavailable."))?;
-        let is_current = requests
+        let is_current = states
             .get(&provider)
-            .is_some_and(|current| current == request_id);
+            .is_some_and(|state| {
+                matches!(state, ProviderRequestState::Pending(current) if current == request_id)
+            });
         if is_current {
-            requests.remove(&provider);
+            states.remove(&provider);
         }
         Ok(is_current)
     }
 
-    fn clear_request(&self, provider: Provider, request_id: &str) {
-        if let Ok(mut requests) = self.pending_requests.lock() {
-            if requests
-                .get(&provider)
-                .is_some_and(|current| current == request_id)
-            {
-                requests.remove(&provider);
+    /// Marks any in-flight fill as requiring page closure. The marker remains
+    /// until a close succeeds, so a failed close cannot turn a live routine
+    /// into an untracked, merely hidden page.
+    fn mark_provider_for_close(&self, provider: Provider) -> bool {
+        self.request_states
+            .lock()
+            .map(|mut states| match states.get(&provider) {
+                Some(ProviderRequestState::Pending(_)) => {
+                    states.insert(provider, ProviderRequestState::MustClose);
+                    true
+                }
+                Some(ProviderRequestState::MustClose) => true,
+                None => false,
+            })
+            // A poisoned manager is treated as unsafe so callers close the
+            // page instead of merely hiding it.
+            .unwrap_or(true)
+    }
+
+    /// Marks an eval failure for closure only when it still belongs to the
+    /// current request. An older command must not cancel a newer fill.
+    fn mark_request_for_close(&self, provider: Provider, request_id: &str) -> bool {
+        self.request_states
+            .lock()
+            .map(|mut states| match states.get(&provider) {
+                Some(ProviderRequestState::Pending(current)) if current == request_id => {
+                    states.insert(provider, ProviderRequestState::MustClose);
+                    true
+                }
+                Some(ProviderRequestState::MustClose) => true,
+                _ => false,
+            })
+            .unwrap_or(true)
+    }
+
+    fn must_close(&self, provider: Provider) -> bool {
+        self.request_states
+            .lock()
+            .map(|states| matches!(states.get(&provider), Some(ProviderRequestState::MustClose)))
+            .unwrap_or(true)
+    }
+
+    /// Clears only the close marker. A concurrently registered newer request
+    /// is deliberately preserved.
+    fn confirm_closed(&self, provider: Provider) {
+        if let Ok(mut states) = self.request_states.lock() {
+            if matches!(states.get(&provider), Some(ProviderRequestState::MustClose)) {
+                states.remove(&provider);
             }
         }
     }
@@ -92,6 +148,7 @@ struct FillScriptInput<'a> {
     request_id: &'a str,
     display_name: &'static str,
     selectors: &'static [&'static str],
+    expected_host: &'static str,
     prompt: &'a str,
 }
 
@@ -116,14 +173,40 @@ pub(crate) fn show_provider_webview(
         .into_iter()
         .filter(|candidate| *candidate != provider)
     {
+        let must_close = lifecycle.mark_provider_for_close(inactive_provider);
         if let Some(webview) = app.get_webview(inactive_provider.config().webview_label) {
-            if let Err(hide_error) = webview.hide() {
-                warn!(
-                    target: "prompter::provider",
-                    "event=inactive_provider_hide_failed reason={hide_error}"
-                );
+            if must_close {
+                // EvaluateScript is fire-and-forget on WKWebView, so a
+                // JavaScript cancellation flag cannot prove that a hidden page
+                // stopped. Close only panes with an in-flight fill.
+                webview.close().map_err(|close_error| {
+                    operation_failed(format!(
+                        "Could not close the active provider fill: {close_error}"
+                    ))
+                })?;
+                lifecycle.confirm_closed(inactive_provider);
+            } else {
+                webview.hide().map_err(|hide_error| {
+                    operation_failed(format!(
+                        "Could not hide the inactive embedded provider: {hide_error}"
+                    ))
+                })?;
             }
+        } else if must_close {
+            // With no page, there is no JavaScript routine left to contain.
+            lifecycle.confirm_closed(inactive_provider);
         }
+    }
+
+    if lifecycle.must_close(provider) {
+        if let Some(webview) = app.get_webview(config.webview_label) {
+            webview.close().map_err(|close_error| {
+                operation_failed(format!(
+                    "Could not close the unsafe provider page: {close_error}"
+                ))
+            })?;
+        }
+        lifecycle.confirm_closed(provider);
     }
 
     if let Some(webview) = app.get_webview(config.webview_label) {
@@ -153,15 +236,29 @@ pub(crate) fn show_provider_webview(
                 return false;
             }
 
-            if url.scheme() == "about" {
+            if url.as_str() == "about:blank" {
+                // An accepted navigation invalidates the old correlation. Keep
+                // a close requirement instead of simply forgetting it: hash
+                // navigation can preserve the JavaScript context.
+                bridge_app
+                    .state::<ProviderLifecycle>()
+                    .mark_provider_for_close(provider);
                 return true;
             }
 
             if provider.accepts_navigation_url(url) {
+                bridge_app
+                    .state::<ProviderLifecycle>()
+                    .mark_provider_for_close(provider);
                 return true;
             }
 
-            open_url_externally(&bridge_app, url);
+            warn!(
+                target: "prompter::provider",
+                "event=embedded_navigation_blocked scheme={} host={}",
+                url.scheme(),
+                url.host_str().unwrap_or("none")
+            );
             false
         })
         .on_new_window(move |url, _| {
@@ -218,19 +315,34 @@ pub(crate) fn resize_provider_webview(
 #[tauri::command]
 pub(crate) fn set_provider_visibility(
     app: AppHandle,
+    lifecycle: State<'_, ProviderLifecycle>,
     provider: Provider,
     visible: bool,
 ) -> Result<(), ProviderCommandError> {
     for candidate in Provider::ALL {
+        let selected = visible && candidate == provider;
+        let must_close = if selected {
+            lifecycle.must_close(candidate)
+        } else {
+            lifecycle.mark_provider_for_close(candidate)
+        };
         if let Some(webview) = app.get_webview(candidate.config().webview_label) {
-            if visible && candidate == provider {
-                webview.show()
+            if must_close {
+                webview.close().map_err(|error| {
+                    operation_failed(format!("Could not close the active provider fill: {error}"))
+                })?;
+                lifecycle.confirm_closed(candidate);
+            } else if selected {
+                webview.show().map_err(|error| {
+                    operation_failed(format!("Could not update the embedded browser: {error}"))
+                })?;
             } else {
-                webview.hide()
+                webview.hide().map_err(|error| {
+                    operation_failed(format!("Could not hide the embedded browser: {error}"))
+                })?;
             }
-            .map_err(|error| {
-                operation_failed(format!("Could not update the embedded browser: {error}"))
-            })?;
+        } else if must_close {
+            lifecycle.confirm_closed(candidate);
         }
     }
 
@@ -281,10 +393,18 @@ pub(crate) fn place_prompt(
         })?;
 
     lifecycle.register_request(provider, &request_id)?;
-    if let Err(error) = webview.eval(script) {
-        lifecycle.clear_request(provider, &request_id);
+    if let Err(eval_error) = webview.eval(script) {
+        if lifecycle.mark_request_for_close(provider, &request_id) {
+            if let Err(close_error) = webview.close() {
+                return Err(operation_failed(format!(
+                    "Could not place the prompt in {} ({eval_error}) or safely close its page ({close_error}).",
+                    config.display_name
+                )));
+            }
+            lifecycle.confirm_closed(provider);
+        }
         return Err(operation_failed(format!(
-            "Could not place the prompt in {}: {error}",
+            "Could not place the prompt in {}: {eval_error}",
             config.display_name
         )));
     }
@@ -309,6 +429,7 @@ fn provider_fill_script(
         request_id,
         display_name: config.display_name,
         selectors: config.editor_selectors,
+        expected_host: config.expected_fill_host,
         prompt,
     };
     let input_json = serde_json::to_string(&input).map_err(|error| {
@@ -321,7 +442,7 @@ fn provider_fill_script(
 /// Hands a URL the embedded pane may not display to the user's default
 /// browser. Content is never logged; only failure reasons are.
 fn open_url_externally(app: &AppHandle, url: &Url) {
-    if !matches!(url.scheme(), "https" | "http") {
+    if url.scheme() != "https" || url.port_or_known_default() != Some(443) {
         warn!(
             target: "prompter::provider",
             "event=external_navigation_blocked scheme={}",
@@ -349,7 +470,7 @@ fn open_url_externally(app: &AppHandle, url: &Url) {
 
 #[cfg(test)]
 mod tests {
-    use super::{provider_fill_script, Provider};
+    use super::{provider_fill_script, Provider, ProviderLifecycle};
 
     #[test]
     fn fill_script_escapes_input_and_never_submits() {
@@ -374,5 +495,54 @@ mod tests {
     fn fill_script_rejects_invalid_request_ids() {
         assert!(provider_fill_script(Provider::Chatgpt, "", "prompt").is_err());
         assert!(provider_fill_script(Provider::Chatgpt, "bad\nid", "prompt").is_err());
+    }
+
+    #[test]
+    fn cancellation_requires_a_confirmed_close_before_reuse() {
+        let lifecycle = ProviderLifecycle::default();
+
+        assert!(!lifecycle.mark_provider_for_close(Provider::Chatgpt));
+        lifecycle
+            .register_request(Provider::Chatgpt, "request-1")
+            .unwrap();
+        assert!(lifecycle.mark_provider_for_close(Provider::Chatgpt));
+        assert!(lifecycle.mark_provider_for_close(Provider::Chatgpt));
+        assert!(lifecycle
+            .register_request(Provider::Chatgpt, "request-2")
+            .is_err());
+
+        lifecycle.confirm_closed(Provider::Chatgpt);
+        lifecycle
+            .register_request(Provider::Chatgpt, "request-2")
+            .unwrap();
+    }
+
+    #[test]
+    fn an_old_eval_failure_cannot_cancel_a_newer_request() {
+        let lifecycle = ProviderLifecycle::default();
+        lifecycle
+            .register_request(Provider::Chatgpt, "request-1")
+            .unwrap();
+        lifecycle
+            .register_request(Provider::Chatgpt, "request-2")
+            .unwrap();
+
+        assert!(!lifecycle.mark_request_for_close(Provider::Chatgpt, "request-1"));
+        assert!(lifecycle
+            .complete_request(Provider::Chatgpt, "request-2")
+            .unwrap());
+    }
+
+    #[test]
+    fn navigation_style_invalidation_requires_close_and_rejects_stale_completion() {
+        let lifecycle = ProviderLifecycle::default();
+        lifecycle
+            .register_request(Provider::Chatgpt, "request-1")
+            .unwrap();
+        assert!(lifecycle.mark_provider_for_close(Provider::Chatgpt));
+        assert!(!lifecycle
+            .complete_request(Provider::Chatgpt, "request-1")
+            .unwrap());
+        assert!(lifecycle.must_close(Provider::Chatgpt));
     }
 }

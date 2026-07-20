@@ -5,6 +5,7 @@ import { selectedInstructionOf, useInstructionStore } from "../instructions/stor
 import { normalizeProviderError, providerGateway } from "./gateway";
 import { getProviderLabel, type PromptComposition, type Provider } from "./model";
 import { useProviderStore } from "./store";
+import { isPromptTooLarge } from "./prompt";
 
 const REQUEST_TIMEOUT_MS = 12_000;
 
@@ -18,6 +19,7 @@ type PendingRequest = {
 // bridge events must match its provider and request id to have any effect.
 let pending: PendingRequest | null = null;
 let ensureProvider: (() => Promise<void>) | null = null;
+let bridgeBindingGeneration = 0;
 
 export function registerEnsureProvider(
   ensure: (() => Promise<void>) | null,
@@ -38,6 +40,10 @@ function clearPending(requestId?: string): boolean {
   return true;
 }
 
+export function cancelCurrentPlacement(): void {
+  clearPending();
+}
+
 export function placementErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
@@ -50,6 +56,20 @@ export async function placePrompt(
   const provider = useProviderStore.getState().provider;
   if (!composition.text.trim()) {
     publishNotice("info", "Add or capture some text first");
+    return;
+  }
+  if (isPromptTooLarge(composition)) {
+    publishNotice(
+      "error",
+      "The prompt is too large to place. Shorten the text or instruction and try again.",
+    );
+    return;
+  }
+  if (!useProviderStore.getState().placementBridgeReady) {
+    publishNotice(
+      "error",
+      "The provider connection is still starting. Wait a moment, then try again.",
+    );
     return;
   }
 
@@ -105,34 +125,42 @@ export function placeCurrentPrompt(): Promise<void> {
 // Mounts the bridge event listeners and the provider-switch canceller.
 // Returns a cleanup function; call once from the composition root.
 export function bindPlacementEvents(): () => void {
-  const unlistenFilled = providerGateway.onPromptFilled((event) => {
-    if (
-      !pending ||
-      useProviderStore.getState().provider !== event.provider ||
-      pending.provider !== event.provider ||
-      pending.requestId !== event.requestId
-    ) {
-      return;
-    }
-    clearPending(event.requestId);
-    publishNotice(
-      "success",
-      `Prompt ready in ${getProviderLabel(event.provider)} — review it and press Send`,
-    );
-  });
+  const bindingGeneration = ++bridgeBindingGeneration;
+  let disposed = false;
+  useProviderStore.setState({ placementBridgeReady: false });
 
-  const unlistenError = providerGateway.onProviderError((event) => {
-    if (
-      !pending ||
-      useProviderStore.getState().provider !== event.provider ||
-      pending.provider !== event.provider ||
-      pending.requestId !== event.requestId
-    ) {
-      return;
-    }
-    clearPending(event.requestId);
-    publishNotice("error", event.message);
-  });
+  const unlistenFilled = Promise.resolve().then(() =>
+    providerGateway.onPromptFilled((event) => {
+      if (
+        !pending ||
+        useProviderStore.getState().provider !== event.provider ||
+        pending.provider !== event.provider ||
+        pending.requestId !== event.requestId
+      ) {
+        return;
+      }
+      clearPending(event.requestId);
+      publishNotice(
+        "success",
+        `Prompt ready in ${getProviderLabel(event.provider)} — review it and press Send`,
+      );
+    }),
+  );
+
+  const unlistenError = Promise.resolve().then(() =>
+    providerGateway.onProviderError((event) => {
+      if (
+        !pending ||
+        useProviderStore.getState().provider !== event.provider ||
+        pending.provider !== event.provider ||
+        pending.requestId !== event.requestId
+      ) {
+        return;
+      }
+      clearPending(event.requestId);
+      publishNotice("error", event.message);
+    }),
+  );
 
   const unsubscribeProvider = useProviderStore.subscribe((state, previous) => {
     if (
@@ -144,10 +172,56 @@ export function bindPlacementEvents(): () => void {
     }
   });
 
+  const subscriptions = Promise.all([
+    unlistenFilled.then(
+      (unlisten) => ({ unlisten, error: null }),
+      (error: unknown) => ({ unlisten: null, error }),
+    ),
+    unlistenError.then(
+      (unlisten) => ({ unlisten, error: null }),
+      (error: unknown) => ({ unlisten: null, error }),
+    ),
+  ]);
+
+  const stopSubscriptions = (
+    results: Array<{ unlisten: (() => void) | null }>,
+  ) => {
+    for (const result of results) {
+      try {
+        result.unlisten?.();
+      } catch {
+        // Listener cleanup is best-effort during WebView teardown.
+      }
+    }
+  };
+
+  void subscriptions.then((results) => {
+    if (disposed) {
+      stopSubscriptions(results);
+      return;
+    }
+    if (results.some((result) => result.error !== null)) {
+      stopSubscriptions(results);
+      publishNotice(
+        "error",
+        "Prompter could not connect to provider completion events. Reload the app and try again.",
+      );
+      return;
+    }
+    if (bridgeBindingGeneration === bindingGeneration) {
+      useProviderStore.setState({ placementBridgeReady: true });
+    }
+  });
+
   return () => {
-    void unlistenFilled.then((unlisten) => unlisten());
-    void unlistenError.then((unlisten) => unlisten());
+    disposed = true;
+    void subscriptions.then((results) => {
+      stopSubscriptions(results);
+    });
     unsubscribeProvider();
     clearPending();
+    if (bridgeBindingGeneration === bindingGeneration) {
+      useProviderStore.setState({ placementBridgeReady: false });
+    }
   };
 }

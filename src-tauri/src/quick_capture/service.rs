@@ -13,7 +13,10 @@ pub(crate) trait ClipboardSnapshot {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BackendFailure {
+    ClipboardUnavailable,
+    ClipboardChanged,
     ClipboardTooLarge,
+    SelectionTooLarge,
     ShortcutKeysHeld,
     CopyFailed,
     CopyTimedOut,
@@ -32,14 +35,20 @@ pub(crate) trait CaptureBackend {
 
     fn has_event_posting_access(&self) -> bool;
     fn wait_for_shortcut_release(&self, timeout: Duration) -> Result<(), BackendFailure>;
+    fn read_selected_text(&self) -> Result<Option<String>, BackendFailure>;
     fn snapshot_clipboard(&self) -> Result<Self::Snapshot, BackendFailure>;
+    fn validate_capture_target(
+        &self,
+        snapshot: &Self::Snapshot,
+        expected_change_count: isize,
+    ) -> Result<(), BackendFailure>;
     fn copy_current_selection(&self) -> Result<(), BackendFailure>;
     fn wait_for_clipboard_change(
         &self,
         initial_change_count: isize,
         timeout: Duration,
     ) -> Result<isize, BackendFailure>;
-    fn read_clipboard_text(&self) -> Result<String, BackendFailure>;
+    fn read_clipboard_text(&self, expected_change_count: isize) -> Result<String, BackendFailure>;
     fn restore_clipboard_if_unchanged(
         &self,
         snapshot: Self::Snapshot,
@@ -64,9 +73,19 @@ pub(crate) fn capture_selection<B: CaptureBackend>(
         .wait_for_shortcut_release(SHORTCUT_RELEASE_TIMEOUT)
         .map_err(map_backend_failure)?;
 
+    if let Some(text) = backend.read_selected_text().map_err(map_backend_failure)? {
+        return validate_text(text).map(|text| CapturedSelection {
+            text,
+            warning: None,
+        });
+    }
+
     let snapshot = backend.snapshot_clipboard().map_err(map_backend_failure)?;
     let initial_change_count = snapshot.change_count();
 
+    backend
+        .validate_capture_target(&snapshot, initial_change_count)
+        .map_err(map_backend_failure)?;
     backend
         .copy_current_selection()
         .map_err(map_backend_failure)?;
@@ -75,7 +94,8 @@ pub(crate) fn capture_selection<B: CaptureBackend>(
         .map_err(map_backend_failure)?;
 
     let text_result = backend
-        .read_clipboard_text()
+        .validate_capture_target(&snapshot, captured_change_count)
+        .and_then(|_| backend.read_clipboard_text(captured_change_count))
         .map_err(map_backend_failure)
         .and_then(validate_text);
     let restore_result = backend.restore_clipboard_if_unchanged(snapshot, captured_change_count);
@@ -85,15 +105,18 @@ pub(crate) fn capture_selection<B: CaptureBackend>(
             text,
             warning: None,
         }),
-        (Ok(text), Ok(RestoreDisposition::SkippedExternalChange)) => Ok(CapturedSelection {
-            text,
-            warning: Some(CaptureWarningCode::ClipboardChanged),
-        }),
+        (Ok(_), Ok(RestoreDisposition::SkippedExternalChange)) => {
+            Err(CaptureErrorCode::ClipboardChanged)
+        }
         (Ok(text), Err(_)) => Ok(CapturedSelection {
             text,
             warning: Some(CaptureWarningCode::ClipboardRestoreFailed),
         }),
-        (Err(error), _) => Err(error),
+        (Err(_), Err(_)) => Err(CaptureErrorCode::ClipboardUnavailable),
+        (Err(_), Ok(RestoreDisposition::SkippedExternalChange)) => {
+            Err(CaptureErrorCode::ClipboardChanged)
+        }
+        (Err(error), Ok(RestoreDisposition::Restored)) => Err(error),
     }
 }
 
@@ -107,10 +130,14 @@ pub(crate) fn validate_text(text: String) -> Result<String, CaptureErrorCode> {
     Ok(text)
 }
 
-fn map_backend_failure(failure: BackendFailure) -> CaptureErrorCode {
+pub(crate) fn map_backend_failure(failure: BackendFailure) -> CaptureErrorCode {
     match failure {
-        BackendFailure::RestoreFailed => CaptureErrorCode::ClipboardUnavailable,
+        BackendFailure::ClipboardUnavailable | BackendFailure::RestoreFailed => {
+            CaptureErrorCode::ClipboardUnavailable
+        }
+        BackendFailure::ClipboardChanged => CaptureErrorCode::ClipboardChanged,
         BackendFailure::ClipboardTooLarge => CaptureErrorCode::ClipboardTooLarge,
+        BackendFailure::SelectionTooLarge => CaptureErrorCode::SelectionTooLarge,
         BackendFailure::ShortcutKeysHeld => CaptureErrorCode::ShortcutKeysHeld,
         BackendFailure::CopyFailed => CaptureErrorCode::CopyFailed,
         BackendFailure::CopyTimedOut => CaptureErrorCode::CopyTimedOut,
@@ -141,6 +168,9 @@ mod tests {
         wait_result: Result<isize, BackendFailure>,
         text_result: Result<String, BackendFailure>,
         restore_result: Result<RestoreDisposition, BackendFailure>,
+        selected_text_result: Result<Option<String>, BackendFailure>,
+        target_result: Result<(), BackendFailure>,
+        validated_change_counts: RefCell<Vec<isize>>,
         calls: RefCell<VecDeque<&'static str>>,
     }
 
@@ -154,6 +184,9 @@ mod tests {
                 wait_result: Ok(11),
                 text_result: Ok(text.into()),
                 restore_result: Ok(RestoreDisposition::Restored),
+                selected_text_result: Ok(None),
+                target_result: Ok(()),
+                validated_change_counts: RefCell::new(Vec::new()),
                 calls: RefCell::new(VecDeque::new()),
             }
         }
@@ -176,9 +209,26 @@ mod tests {
             self.release_result
         }
 
+        fn read_selected_text(&self) -> Result<Option<String>, BackendFailure> {
+            self.calls.borrow_mut().push_back("selected");
+            self.selected_text_result.clone()
+        }
+
         fn snapshot_clipboard(&self) -> Result<Self::Snapshot, BackendFailure> {
             self.calls.borrow_mut().push_back("snapshot");
             self.snapshot_result
+        }
+
+        fn validate_capture_target(
+            &self,
+            _snapshot: &Self::Snapshot,
+            expected_change_count: isize,
+        ) -> Result<(), BackendFailure> {
+            self.calls.borrow_mut().push_back("target");
+            self.validated_change_counts
+                .borrow_mut()
+                .push(expected_change_count);
+            self.target_result
         }
 
         fn copy_current_selection(&self) -> Result<(), BackendFailure> {
@@ -195,7 +245,10 @@ mod tests {
             self.wait_result
         }
 
-        fn read_clipboard_text(&self) -> Result<String, BackendFailure> {
+        fn read_clipboard_text(
+            &self,
+            _expected_change_count: isize,
+        ) -> Result<String, BackendFailure> {
             self.calls.borrow_mut().push_back("read");
             self.text_result.clone()
         }
@@ -230,14 +283,18 @@ mod tests {
 
         assert_eq!(captured.text, "Line one\n✨ Line two");
         assert_eq!(captured.warning, None);
+        assert_eq!(*backend.validated_change_counts.borrow(), vec![10, 11]);
         assert_eq!(
             backend.calls(),
             vec![
                 "permission",
                 "release",
+                "selected",
                 "snapshot",
+                "target",
                 "copy",
                 "wait",
+                "target",
                 "read",
                 "restore"
             ]
@@ -264,14 +321,14 @@ mod tests {
     }
 
     #[test]
-    fn external_clipboard_change_is_not_overwritten() {
+    fn external_clipboard_change_is_not_overwritten_or_returned_as_capture() {
         let mut backend = FakeBackend::success("Captured");
         backend.restore_result = Ok(RestoreDisposition::SkippedExternalChange);
 
-        let captured = capture_selection(&backend).expect("capture should succeed");
-
-        assert_eq!(captured.text, "Captured");
-        assert_eq!(captured.warning, Some(CaptureWarningCode::ClipboardChanged));
+        assert_eq!(
+            capture_selection(&backend),
+            Err(CaptureErrorCode::ClipboardChanged)
+        );
     }
 
     #[test]
@@ -299,7 +356,41 @@ mod tests {
         );
         assert_eq!(
             backend.calls(),
-            vec!["permission", "release", "snapshot", "copy", "wait"]
+            vec![
+                "permission",
+                "release",
+                "selected",
+                "snapshot",
+                "target",
+                "copy",
+                "wait"
+            ]
+        );
+    }
+
+    #[test]
+    fn accessibility_selection_avoids_the_clipboard_transaction() {
+        let mut backend = FakeBackend::success("clipboard fallback");
+        backend.selected_text_result = Ok(Some("Direct selection".into()));
+
+        let captured = capture_selection(&backend).expect("capture should succeed");
+
+        assert_eq!(captured.text, "Direct selection");
+        assert_eq!(backend.calls(), vec!["permission", "release", "selected"]);
+    }
+
+    #[test]
+    fn unsafe_snapshot_aborts_before_copy() {
+        let mut backend = FakeBackend::success("text");
+        backend.snapshot_result = Err(BackendFailure::ClipboardUnavailable);
+
+        assert_eq!(
+            capture_selection(&backend),
+            Err(CaptureErrorCode::ClipboardUnavailable)
+        );
+        assert_eq!(
+            backend.calls(),
+            vec!["permission", "release", "selected", "snapshot"]
         );
     }
 }

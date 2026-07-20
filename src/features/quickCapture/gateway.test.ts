@@ -43,7 +43,7 @@ describe("Quick Capture gateway", () => {
     );
   });
 
-  it("drains every valid pending outcome", async () => {
+  it("lists every valid pending outcome without destructive acknowledgement", async () => {
     const outcome = {
       kind: "success",
       version: 1,
@@ -54,10 +54,21 @@ describe("Quick Capture gateway", () => {
     };
     vi.mocked(invoke).mockResolvedValueOnce([outcome]);
 
-    await expect(quickCaptureGateway.takePendingOutcomes()).resolves.toEqual([
+    await expect(quickCaptureGateway.listPendingOutcomes()).resolves.toEqual([
       outcome,
     ]);
-    expect(invoke).toHaveBeenCalledWith(QUICK_CAPTURE_COMMANDS.takeOutcomes);
+    expect(invoke).toHaveBeenCalledWith(QUICK_CAPTURE_COMMANDS.listOutcomes);
+  });
+
+  it("acknowledges only explicitly processed request ids", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+    await quickCaptureGateway.acknowledgeOutcomes(["capture-4", "capture-5"]);
+
+    expect(invoke).toHaveBeenCalledWith(
+      QUICK_CAPTURE_COMMANDS.acknowledgeOutcomes,
+      { requestIds: ["capture-4", "capture-5"] },
+    );
   });
 
   it("subscribes to the exact event and ignores malformed notifications", async () => {

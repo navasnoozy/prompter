@@ -27,6 +27,7 @@ export const TAURI_EVENTS = {
 function parsePromptFilled(value: unknown): PromptFilledEvent | null {
   if (
     !isRecord(value) ||
+    value.version !== 1 ||
     !isProvider(value.provider) ||
     typeof value.requestId !== "string" ||
     !value.requestId
@@ -34,16 +35,17 @@ function parsePromptFilled(value: unknown): PromptFilledEvent | null {
     return null;
   }
 
-  return { provider: value.provider, requestId: value.requestId };
+  return { version: 1, provider: value.provider, requestId: value.requestId };
 }
 
 function parseProviderError(value: unknown): ProviderErrorEvent | null {
   const filled = parsePromptFilled(value);
-  if (!filled || !isRecord(value) || typeof value.message !== "string") {
+  const error = parseProviderCommandError(value);
+  if (!filled || !error) {
     return null;
   }
 
-  return { ...filled, message: value.message };
+  return { ...filled, code: error.code, message: error.message };
 }
 
 export function normalizeProviderError(error: unknown): ProviderCommandError {

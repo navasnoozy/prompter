@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { settingsGateway } from "../../shared/settingsGateway";
-import { useNoticeStore } from "../../shared/notices";
+import { publishNotice, useNoticeStore } from "../../shared/notices";
 import type { InstructionPreset } from "./model";
 import { initializeInstructionStore, useInstructionStore } from "./store";
 
@@ -13,8 +13,8 @@ vi.mock("../../shared/settingsGateway", () => ({
   },
   settingsGateway: {
     read: vi.fn(),
-    write: vi.fn().mockResolvedValue(undefined),
-    writeMany: vi.fn().mockResolvedValue(undefined),
+    write: vi.fn().mockResolvedValue(true),
+    writeMany: vi.fn().mockResolvedValue(true),
   },
 }));
 
@@ -40,7 +40,7 @@ describe("instruction store", () => {
     });
   });
 
-  it("saves a new draft, selects it, closes the editor, and persists", () => {
+  it("announces a save only after the durable write succeeds", async () => {
     useInstructionStore.getState().openEditor("new");
 
     useInstructionStore.getState().saveDraft({
@@ -60,6 +60,39 @@ describe("instruction store", () => {
       presets: { version: 2, instructions: library.instructions },
       selectedInstructionId: saved.id,
     });
+    expect(useNoticeStore.getState().notice.kind).toBe("progress");
+    await vi.waitFor(() =>
+      expect(useNoticeStore.getState().notice).toMatchObject({
+        kind: "success",
+        message: "Instruction saved",
+      }),
+    );
+  });
+
+  it("does not let an older save success replace a newer persistence error", async () => {
+    let resolveWrite: ((saved: boolean) => void) | undefined;
+    vi.mocked(settingsGateway.writeMany).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveWrite = resolve;
+      }),
+    );
+
+    useInstructionStore.getState().saveDraft({
+      name: "Deferred",
+      beforeText: "Rewrite clearly",
+      afterText: "",
+      color: "blue",
+    });
+    expect(useNoticeStore.getState().notice.kind).toBe("progress");
+    publishNotice("error", "A newer settings write failed");
+
+    resolveWrite?.(true);
+    await vi.waitFor(() =>
+      expect(useNoticeStore.getState().notice).toMatchObject({
+        kind: "error",
+        message: "A newer settings write failed",
+      }),
+    );
   });
 
   it("rejects drafts without a name or before-text and keeps the editor open", () => {

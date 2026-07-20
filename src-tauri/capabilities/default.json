@@ -1,12 +1,30 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": [
+  "description": "Minimal frontend capability for Prompter's local main webview",
+  "webviews": [
     "main"
   ],
+  "platforms": [
+    "macOS"
+  ],
   "permissions": [
-    "core:default",
-    "store:default"
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-show-provider-webview",
+    "allow-resize-provider-webview",
+    "allow-set-provider-visibility",
+    "allow-place-prompt",
+    "allow-get-quick-capture-status",
+    "allow-request-quick-capture-permission",
+    "allow-open-quick-capture-settings",
+    "allow-retry-quick-capture-registration",
+    "allow-read-clipboard-text",
+    "allow-list-quick-capture-outcomes",
+    "allow-acknowledge-quick-capture-outcomes",
+    "allow-get-app-lifecycle-status",
+    "allow-set-launch-at-login",
+    "allow-load-settings",
+    "allow-save-settings"
   ]
 }

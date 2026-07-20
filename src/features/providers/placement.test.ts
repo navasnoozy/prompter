@@ -51,7 +51,7 @@ function lastRequestId(): string {
 }
 
 describe("placement machine", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.mocked(providerGateway.onPromptFilled).mockImplementation((handler) => {
@@ -63,12 +63,17 @@ describe("placement machine", () => {
       return Promise.resolve(() => {});
     });
     vi.mocked(providerGateway.placePrompt).mockResolvedValue(undefined);
-    useProviderStore.setState({ provider: "chatgpt", isPlacing: false });
+    useProviderStore.setState({
+      provider: "chatgpt",
+      isPlacing: false,
+      placementBridgeReady: false,
+    });
     useNoticeStore.setState({
       notice: { id: 0, kind: "info", message: "Ready" },
     });
     registerEnsureProvider(() => Promise.resolve());
     cleanup = bindPlacementEvents();
+    for (let index = 0; index < 5; index += 1) await Promise.resolve();
   });
 
   afterEach(() => {
@@ -85,12 +90,26 @@ describe("placement machine", () => {
     expect(isPlacing()).toBe(false);
   });
 
+  it("rejects a composition whose UTF-8 output exceeds the native cap", async () => {
+    await placePrompt({ ...COMPOSITION, text: "x".repeat(1_048_576) });
+
+    expect(currentNotice()).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("too large"),
+    });
+    expect(providerGateway.placePrompt).not.toHaveBeenCalled();
+  });
+
   it("completes the request when the provider confirms the fill", async () => {
     await placePrompt(COMPOSITION);
     expect(isPlacing()).toBe(true);
     expect(currentNotice().kind).toBe("progress");
 
-    filledHandler({ provider: "chatgpt", requestId: lastRequestId() });
+    filledHandler({
+      version: 1,
+      provider: "chatgpt",
+      requestId: lastRequestId(),
+    });
 
     expect(isPlacing()).toBe(false);
     expect(currentNotice().kind).toBe("success");
@@ -100,7 +119,11 @@ describe("placement machine", () => {
   it("ignores confirmations for a different request", async () => {
     await placePrompt(COMPOSITION);
 
-    filledHandler({ provider: "chatgpt", requestId: "stale-request" });
+    filledHandler({
+      version: 1,
+      provider: "chatgpt",
+      requestId: "stale-request",
+    });
 
     expect(isPlacing()).toBe(true);
   });
@@ -109,8 +132,10 @@ describe("placement machine", () => {
     await placePrompt(COMPOSITION);
 
     errorHandler({
+      version: 1,
       provider: "chatgpt",
       requestId: lastRequestId(),
+      code: "editor_not_found",
       message: "The ChatGPT input box was not found.",
     });
 
@@ -181,5 +206,21 @@ describe("placement machine", () => {
       },
       expect.any(String),
     );
+  });
+
+  it("disables placement and reports listener registration failures", async () => {
+    cleanup?.();
+    vi.mocked(providerGateway.onPromptFilled).mockRejectedValueOnce(
+      new Error("event bridge unavailable"),
+    );
+    cleanup = bindPlacementEvents();
+
+    await vi.waitFor(() => {
+      expect(useProviderStore.getState().placementBridgeReady).toBe(false);
+      expect(currentNotice()).toMatchObject({
+        kind: "error",
+        message: expect.stringContaining("completion events"),
+      });
+    });
   });
 });

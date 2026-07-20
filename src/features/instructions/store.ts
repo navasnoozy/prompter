@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { createId } from "../../shared/ids";
-import { publishNotice } from "../../shared/notices";
+import {
+  publishNotice,
+  publishNoticeIfCurrent,
+} from "../../shared/notices";
 import { settingsGateway, SETTINGS_KEYS } from "../../shared/settingsGateway";
 import {
   addInstruction,
@@ -30,13 +33,27 @@ type InstructionState = {
   closeEditor: () => void;
 };
 
-function persistLibrary(library: InstructionLibrary): void {
+let persistenceSequence = 0;
+
+function persistLibrary(
+  library: InstructionLibrary,
+  successMessage: string,
+): void {
+  const sequence = ++persistenceSequence;
+  const progressNoticeId = publishNotice(
+    "progress",
+    "Saving instruction library…",
+  );
   void settingsGateway.writeMany({
     [SETTINGS_KEYS.presets]: {
       version: 2,
       instructions: library.instructions,
     },
     [SETTINGS_KEYS.selectedInstructionId]: library.selectedId,
+  }).then((saved) => {
+    if (saved && sequence === persistenceSequence) {
+      publishNoticeIfCurrent(progressNoticeId, "success", successMessage);
+    }
   });
 }
 
@@ -72,8 +89,7 @@ export const useInstructionStore = create<InstructionState>()((set, get) => ({
         : addInstruction(state.library, instruction),
       editorTarget: null,
     }));
-    persistLibrary(get().library);
-    publishNotice("success", "Instruction saved");
+    persistLibrary(get().library, "Instruction saved");
   },
 
   deleteInstruction: (id) => {
@@ -81,8 +97,7 @@ export const useInstructionStore = create<InstructionState>()((set, get) => ({
       library: removeInstruction(state.library, id),
       editorTarget: null,
     }));
-    persistLibrary(get().library);
-    publishNotice("success", "Instruction deleted");
+    persistLibrary(get().library, "Instruction deleted");
   },
 
   openEditor: (target) => set({ editorTarget: target }),

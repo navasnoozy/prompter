@@ -22,7 +22,9 @@ pub(crate) enum ShortcutRegistrationState {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CaptureErrorCode {
     PermissionRequired,
+    InvalidRequest,
     ClipboardUnavailable,
+    ClipboardChanged,
     ClipboardTooLarge,
     ShortcutKeysHeld,
     CopyFailed,
@@ -38,8 +40,12 @@ impl CaptureErrorCode {
             Self::PermissionRequired => {
                 "Quick Capture needs macOS permission before it can copy selected text."
             }
+            Self::InvalidRequest => "The Quick Capture request was invalid.",
             Self::ClipboardUnavailable => {
                 "Prompter could not safely access the clipboard. Please try again."
+            }
+            Self::ClipboardChanged => {
+                "The clipboard changed during capture, so Prompter stopped rather than use the wrong text. Please try again."
             }
             Self::ClipboardTooLarge => {
                 "Quick Capture cannot safely preserve the current clipboard because it is too large."
@@ -63,7 +69,6 @@ impl CaptureErrorCode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CaptureWarningCode {
-    ClipboardChanged,
     ClipboardRestoreFailed,
     WindowUnavailable,
 }
@@ -71,9 +76,6 @@ pub(crate) enum CaptureWarningCode {
 impl CaptureWarningCode {
     pub(crate) fn user_message(self) -> &'static str {
         match self {
-            Self::ClipboardChanged => {
-                "Text captured. A newer clipboard change was preserved instead of being overwritten."
-            }
             Self::ClipboardRestoreFailed => {
                 "Text captured, but Prompter could not restore the previous clipboard."
             }
@@ -157,7 +159,6 @@ pub(crate) enum CaptureOutcome {
     },
 }
 
-#[cfg(test)]
 impl CaptureOutcome {
     pub(crate) fn request_id(&self) -> &str {
         match self {
@@ -208,7 +209,7 @@ mod tests {
             version: CONTRACT_VERSION,
             request_id: "capture-7".into(),
             text: "Selected text".into(),
-            warnings: vec![CaptureWarningCode::ClipboardChanged.into()],
+            warnings: vec![CaptureWarningCode::ClipboardRestoreFailed.into()],
             duration_ms: 42,
         };
 
@@ -217,7 +218,7 @@ mod tests {
         assert_eq!(value["kind"], "success");
         assert_eq!(value["requestId"], "capture-7");
         assert_eq!(value["durationMs"], 42);
-        assert_eq!(value["warnings"][0]["code"], "clipboard_changed");
+        assert_eq!(value["warnings"][0]["code"], "clipboard_restore_failed");
         assert_eq!(value["text"], "Selected text");
     }
 

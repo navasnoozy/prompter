@@ -18,7 +18,8 @@ export const QUICK_CAPTURE_COMMANDS = {
   openSettings: "open_quick_capture_settings",
   retryRegistration: "retry_quick_capture_registration",
   readClipboardText: "read_clipboard_text",
-  takeOutcomes: "take_quick_capture_outcomes",
+  listOutcomes: "list_quick_capture_outcomes",
+  acknowledgeOutcomes: "acknowledge_quick_capture_outcomes",
 } as const;
 
 export const QUICK_CAPTURE_EVENTS = {
@@ -77,8 +78,8 @@ export const quickCaptureGateway = {
     return payload;
   },
 
-  async takePendingOutcomes(): Promise<CaptureOutcome[]> {
-    const value = await invoke<unknown>(QUICK_CAPTURE_COMMANDS.takeOutcomes);
+  async listPendingOutcomes(): Promise<CaptureOutcome[]> {
+    const value = await invoke<unknown>(QUICK_CAPTURE_COMMANDS.listOutcomes);
     if (!Array.isArray(value)) {
       throw new QuickCaptureProtocolError("outcomes");
     }
@@ -87,6 +88,10 @@ export const quickCaptureGateway = {
       throw new QuickCaptureProtocolError("outcome");
     }
     return outcomes as CaptureOutcome[];
+  },
+
+  acknowledgeOutcomes(requestIds: string[]): Promise<void> {
+    return invoke(QUICK_CAPTURE_COMMANDS.acknowledgeOutcomes, { requestIds });
   },
 
   onReady(handler: () => void): Promise<UnlistenFn> {

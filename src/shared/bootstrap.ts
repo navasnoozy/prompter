@@ -1,24 +1,31 @@
-import { initializeInstructionStore } from "../features/instructions/store";
-import { decodeStoredInstructions } from "../features/instructions/storage";
 import { createDefaultInstructions } from "../features/instructions/defaults";
+import type { InstructionPreset } from "../features/instructions/model";
+import { decodeStoredInstructions } from "../features/instructions/storage";
+import { initializeInstructionStore } from "../features/instructions/store";
 import { isProvider, type Provider } from "../features/providers/model";
 import { initializeProviderStore } from "../features/providers/store";
 import {
   initializeSettingsStore,
   type AppTheme,
 } from "../features/settings/store";
-import type { InstructionPreset } from "../features/instructions/model";
-import { settingsGateway, SETTINGS_KEYS } from "./settingsGateway";
+import { isRecord } from "./contracts";
+import { publishNotice } from "./notices";
+import {
+  settingsGateway,
+  SETTINGS_KEYS,
+  type SettingsDocument,
+  type SettingsKey,
+} from "./settingsGateway";
 
 // Storage keys used by releases that persisted into WKWebView localStorage.
-// Read-only: migration copies them into the durable settings file once and
-// leaves the originals untouched as a backup.
+// Each valid legacy value is migrated independently and deleted only after a
+// confirmed durable save (or after a confirmed durable value supersedes it).
 const LEGACY_KEYS = {
   presets: "prompter.presets.v1",
-  selection: "prompter.selection.v1",
+  selectedInstructionId: "prompter.selection.v1",
   theme: "prompter.theme.v1",
   provider: "prompter.provider.v1",
-} as const;
+} as const satisfies Record<SettingsKey, string>;
 
 export type BootState = {
   instructions: InstructionPreset[];
@@ -27,42 +34,75 @@ export type BootState = {
   provider: Provider;
 };
 
-type RawSettings = {
-  presets: unknown;
-  selectedInstructionId: unknown;
-  theme: unknown;
-  provider: unknown;
+type LegacySettings = {
+  values: SettingsDocument;
+  presentKeys: Set<SettingsKey>;
 };
 
-function readLegacySettings(): Partial<RawSettings> | null {
-  let rawPresets: string | null;
-  try {
-    rawPresets = localStorage.getItem(LEGACY_KEYS.presets);
-  } catch {
-    return null;
-  }
-  if (!rawPresets) return null;
+function readLegacySettings(): LegacySettings {
+  const values: SettingsDocument = {};
+  const presentKeys = new Set<SettingsKey>();
 
-  let presets: unknown;
-  try {
-    presets = JSON.parse(rawPresets);
-  } catch {
-    return null;
+  function read(key: SettingsKey): string | null {
+    try {
+      return localStorage.getItem(LEGACY_KEYS[key]);
+    } catch {
+      return null;
+    }
   }
-  if (decodeStoredInstructions(presets).length === 0) return null;
 
-  const legacy: Partial<RawSettings> = { presets };
-  try {
-    const selection = localStorage.getItem(LEGACY_KEYS.selection);
-    if (selection) legacy.selectedInstructionId = selection;
-    const theme = localStorage.getItem(LEGACY_KEYS.theme);
-    if (theme === "light" || theme === "dark") legacy.theme = theme;
-    const provider = localStorage.getItem(LEGACY_KEYS.provider);
-    if (isProvider(provider)) legacy.provider = provider;
-  } catch {
-    // Optional keys; the presets alone are worth migrating.
+  const rawPresets = read(SETTINGS_KEYS.presets);
+  if (rawPresets) {
+    try {
+      const presets: unknown = JSON.parse(rawPresets);
+      const decoded = decodeStoredInstructions(presets);
+      if (decoded.length > 0) {
+        values.presets = { version: 2, instructions: decoded };
+        presentKeys.add(SETTINGS_KEYS.presets);
+      }
+    } catch {
+      // A damaged legacy value is ignored without blocking other valid keys.
+    }
   }
-  return legacy;
+
+  const selection = read(SETTINGS_KEYS.selectedInstructionId)?.trim();
+  if (selection) {
+    values.selectedInstructionId = selection;
+    presentKeys.add(SETTINGS_KEYS.selectedInstructionId);
+  }
+
+  const theme = read(SETTINGS_KEYS.theme);
+  if (theme === "light" || theme === "dark") {
+    values.theme = theme;
+    presentKeys.add(SETTINGS_KEYS.theme);
+  }
+
+  const provider = read(SETTINGS_KEYS.provider);
+  if (isProvider(provider)) {
+    values.provider = provider;
+    presentKeys.add(SETTINGS_KEYS.provider);
+  }
+
+  return { values, presentKeys };
+}
+
+function isFutureInstructionDocument(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.version === "number" &&
+    value.version > 2
+  );
+}
+
+function removeLegacyKeys(keys: Iterable<SettingsKey>): void {
+  for (const key of keys) {
+    try {
+      localStorage.removeItem(LEGACY_KEYS[key]);
+    } catch {
+      // The durable copy is already confirmed; inaccessible legacy storage
+      // does not make the current settings unsafe.
+    }
+  }
 }
 
 function systemTheme(): AppTheme {
@@ -73,51 +113,102 @@ function systemTheme(): AppTheme {
 }
 
 export async function loadBootState(): Promise<BootState> {
-  let raw: Partial<RawSettings> = {};
+  let durable: SettingsDocument = {};
+  let durableLoaded = false;
   try {
-    raw = {
-      presets: await settingsGateway.read(SETTINGS_KEYS.presets),
-      selectedInstructionId: await settingsGateway.read(
-        SETTINGS_KEYS.selectedInstructionId,
-      ),
-      theme: await settingsGateway.read(SETTINGS_KEYS.theme),
-      provider: await settingsGateway.read(SETTINGS_KEYS.provider),
-    };
+    durable = await settingsGateway.load();
+    durableLoaded = true;
   } catch {
-    // The durable store is unreachable; run on defaults for this session.
+    publishNotice(
+      "error",
+      "Prompter could not load saved settings. Defaults are being used for this session.",
+    );
   }
 
-  if (raw.presets === undefined || raw.presets === null) {
-    const legacy = readLegacySettings();
-    if (legacy) {
-      raw = { ...raw, ...legacy };
-      const decoded = decodeStoredInstructions(legacy.presets);
-      void settingsGateway.writeMany({
-        [SETTINGS_KEYS.presets]: { version: 2, instructions: decoded },
-        ...(legacy.selectedInstructionId !== undefined && {
-          [SETTINGS_KEYS.selectedInstructionId]: legacy.selectedInstructionId,
-        }),
-        ...(legacy.theme !== undefined && {
-          [SETTINGS_KEYS.theme]: legacy.theme,
-        }),
-        ...(legacy.provider !== undefined && {
-          [SETTINGS_KEYS.provider]: legacy.provider,
-        }),
-      });
+  const legacy = readLegacySettings();
+  const migration: SettingsDocument = {};
+  const cleanupAfterSave = new Set<SettingsKey>();
+  const cleanupNow = new Set<SettingsKey>();
+
+  const durableInstructions = decodeStoredInstructions(durable.presets);
+  const legacyInstructions = decodeStoredInstructions(legacy.values.presets);
+  const futureInstructions = isFutureInstructionDocument(durable.presets);
+
+  let instructions = durableInstructions;
+  if (instructions.length > 0) {
+    if (legacy.presentKeys.has(SETTINGS_KEYS.presets)) {
+      cleanupNow.add(SETTINGS_KEYS.presets);
+    }
+  } else if (legacyInstructions.length > 0) {
+    instructions = legacyInstructions;
+    if (durableLoaded && !futureInstructions) {
+      migration.presets = { version: 2, instructions };
+      cleanupAfterSave.add(SETTINGS_KEYS.presets);
     }
   }
+  const resolvedInstructions =
+    instructions.length > 0 ? instructions : createDefaultInstructions();
 
-  const instructions = decodeStoredInstructions(raw.presets);
+  function chooseValue(
+    key: Exclude<SettingsKey, "presets">,
+    durableIsValid: (value: unknown) => boolean,
+  ): unknown {
+    if (durableIsValid(durable[key])) {
+      if (legacy.presentKeys.has(key)) cleanupNow.add(key);
+      return durable[key];
+    }
+    if (durableIsValid(legacy.values[key])) {
+      if (durableLoaded) {
+        migration[key] = legacy.values[key];
+        cleanupAfterSave.add(key);
+      }
+      return legacy.values[key];
+    }
+    return undefined;
+  }
+
+  const validSelection = (value: unknown): value is string =>
+    typeof value === "string" &&
+    resolvedInstructions.some(({ id }) => id === value.trim());
+  let selectedInstructionId: string | undefined;
+  if (validSelection(durable.selectedInstructionId)) {
+    selectedInstructionId = durable.selectedInstructionId.trim();
+    if (legacy.presentKeys.has(SETTINGS_KEYS.selectedInstructionId)) {
+      cleanupNow.add(SETTINGS_KEYS.selectedInstructionId);
+    }
+  } else if (validSelection(legacy.values.selectedInstructionId)) {
+    selectedInstructionId = legacy.values.selectedInstructionId.trim();
+    if (durableLoaded && !futureInstructions) {
+      migration.selectedInstructionId = selectedInstructionId;
+      cleanupAfterSave.add(SETTINGS_KEYS.selectedInstructionId);
+    }
+  } else if (
+    durableLoaded &&
+    typeof durable.selectedInstructionId === "string" &&
+    durable.selectedInstructionId.length > 0 &&
+    !futureInstructions
+  ) {
+    selectedInstructionId = resolvedInstructions[0].id;
+    migration.selectedInstructionId = selectedInstructionId;
+  }
+  const theme = chooseValue(
+    SETTINGS_KEYS.theme,
+    (value) => value === "light" || value === "dark",
+  );
+  const provider = chooseValue(SETTINGS_KEYS.provider, isProvider);
+
+  if (durableLoaded) removeLegacyKeys(cleanupNow);
+
+  if (Object.keys(migration).length > 0) {
+    const saved = await settingsGateway.writeMany(migration);
+    if (saved) removeLegacyKeys(cleanupAfterSave);
+  }
+
   return {
-    instructions:
-      instructions.length > 0 ? instructions : createDefaultInstructions(),
-    selectedId:
-      typeof raw.selectedInstructionId === "string"
-        ? raw.selectedInstructionId
-        : undefined,
-    theme:
-      raw.theme === "light" || raw.theme === "dark" ? raw.theme : systemTheme(),
-    provider: isProvider(raw.provider) ? raw.provider : "chatgpt",
+    instructions: resolvedInstructions,
+    selectedId: selectedInstructionId,
+    theme: theme === "light" || theme === "dark" ? theme : systemTheme(),
+    provider: isProvider(provider) ? provider : "chatgpt",
   };
 }
 

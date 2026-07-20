@@ -13,6 +13,8 @@ pub(crate) enum ProviderErrorCode {
     InvalidBounds,
     InvalidRequest,
     WrongHost,
+    EditorNotFound,
+    EditorUpdateFailed,
     MissingInstruction,
     MissingText,
     PromptTooLarge,
@@ -32,6 +34,18 @@ impl ProviderCommandError {
             version: PROVIDER_CONTRACT_VERSION,
             code,
             message: message.into(),
+        }
+    }
+}
+
+impl ProviderErrorCode {
+    pub(crate) fn from_bridge_value(value: &str) -> Option<Self> {
+        match value {
+            "wrong_host" => Some(Self::WrongHost),
+            "editor_not_found" => Some(Self::EditorNotFound),
+            "editor_update_failed" => Some(Self::EditorUpdateFailed),
+            "internal" => Some(Self::WebviewOperationFailed),
+            _ => None,
         }
     }
 }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-provider-visibility"
+description = "Enables the set_provider_visibility command without any pre-configured scope."
+commands.allow = ["set_provider_visibility"]
+
+[[permission]]
+identifier = "deny-set-provider-visibility"
+description = "Denies the set_provider_visibility command without any pre-configured scope."
+commands.deny = ["set_provider_visibility"]

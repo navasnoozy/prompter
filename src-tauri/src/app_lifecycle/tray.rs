@@ -56,8 +56,9 @@ fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                     );
                 }
             }
-            // Quitting during an active Quick Capture defers until the
-            // clipboard is restored; the deferral waiter exits on its own.
+            // Quitting during an active Quick Capture defers until its guarded
+            // clipboard transaction and restore attempt finish; the waiter
+            // exits on its own.
             MENU_QUIT if !quick_capture::defer_exit_if_capturing(app) => app.exit(0),
             _ => {}
         })

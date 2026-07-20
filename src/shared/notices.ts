@@ -42,6 +42,17 @@ export const useNoticeStore = create<NoticeState>()((set, get) => ({
   },
 }));
 
-export function publishNotice(kind: NoticeKind, message: string): void {
+export function publishNotice(kind: NoticeKind, message: string): number {
   useNoticeStore.getState().publish(kind, message);
+  return useNoticeStore.getState().notice.id;
+}
+
+export function publishNoticeIfCurrent(
+  expectedId: number,
+  kind: NoticeKind,
+  message: string,
+): boolean {
+  if (useNoticeStore.getState().notice.id !== expectedId) return false;
+  publishNotice(kind, message);
+  return true;
 }

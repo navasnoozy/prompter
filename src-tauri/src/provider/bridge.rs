@@ -4,7 +4,11 @@ use log::{error, warn};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Url};
 
-use super::{commands::ProviderLifecycle, config::Provider};
+use super::{
+    commands::ProviderLifecycle,
+    config::Provider,
+    error::{ProviderErrorCode, PROVIDER_CONTRACT_VERSION},
+};
 use crate::MAIN_WINDOW_LABEL;
 
 pub(super) const MAX_REQUEST_ID_LENGTH: usize = 128;
@@ -21,6 +25,7 @@ pub(super) fn is_valid_request_id(request_id: &str) -> bool {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProviderFilledPayload {
+    version: u8,
     provider: Provider,
     request_id: String,
 }
@@ -28,15 +33,20 @@ struct ProviderFilledPayload {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProviderErrorPayload {
+    version: u8,
     provider: Provider,
     request_id: String,
+    code: ProviderErrorCode,
     message: String,
 }
 
 #[derive(Debug, PartialEq)]
 pub(super) enum BridgeEventKind {
     Filled,
-    Error(String),
+    Error {
+        code: ProviderErrorCode,
+        message: String,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -76,12 +86,16 @@ pub(super) fn parse_bridge_event(
     let kind = match event_name {
         "filled" => BridgeEventKind::Filled,
         "error" => {
+            let code = values
+                .get("code")
+                .and_then(|code| ProviderErrorCode::from_bridge_value(code))
+                .ok_or_else(|| "The provider bridge error code is invalid.".to_string())?;
             let message = values
                 .get("message")
                 .filter(|message| !message.trim().is_empty())
                 .map(|message| message.chars().take(MAX_BRIDGE_MESSAGE_LENGTH).collect())
                 .unwrap_or_else(|| "The provider connection failed.".into());
-            BridgeEventKind::Error(message)
+            BridgeEventKind::Error { code, message }
         }
         _ => return Err("Unknown provider bridge event.".into()),
     };
@@ -131,16 +145,19 @@ pub(super) fn handle_provider_bridge_url(app: &AppHandle, expected_provider: Pro
             MAIN_WINDOW_LABEL,
             "prompter://prompt-filled",
             ProviderFilledPayload {
+                version: PROVIDER_CONTRACT_VERSION,
                 provider: event.provider,
                 request_id: event.request_id,
             },
         ),
-        BridgeEventKind::Error(message) => app.emit_to(
+        BridgeEventKind::Error { code, message } => app.emit_to(
             MAIN_WINDOW_LABEL,
             "prompter://provider-error",
             ProviderErrorPayload {
+                version: PROVIDER_CONTRACT_VERSION,
                 provider: event.provider,
                 request_id: event.request_id,
+                code,
                 message,
             },
         ),
@@ -191,5 +208,26 @@ mod tests {
         assert!(!is_valid_request_id(""));
         assert!(!is_valid_request_id(&"x".repeat(MAX_REQUEST_ID_LENGTH + 1)));
         assert!(!is_valid_request_id("bad\nid"));
+    }
+
+    #[test]
+    fn bridge_errors_require_a_stable_allowlisted_code() {
+        let valid = Url::parse(
+            "prompter://error?provider=chatgpt&requestId=request-1&code=editor_not_found&message=Missing",
+        )
+        .unwrap();
+        assert!(matches!(
+            parse_bridge_event(&valid, Provider::Chatgpt).unwrap().kind,
+            BridgeEventKind::Error {
+                code: super::ProviderErrorCode::EditorNotFound,
+                ..
+            }
+        ));
+
+        let unknown = Url::parse(
+            "prompter://error?provider=chatgpt&requestId=request-1&code=unknown&message=Missing",
+        )
+        .unwrap();
+        assert!(parse_bridge_event(&unknown, Provider::Chatgpt).is_err());
     }
 }

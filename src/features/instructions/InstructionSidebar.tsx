@@ -53,6 +53,7 @@ export function InstructionSidebar() {
               key={instruction.id}
             >
               <button
+                aria-pressed={selectedId === instruction.id}
                 className="preset-main"
                 onClick={() => select(instruction.id)}
                 type="button"
@@ -98,7 +99,8 @@ export function InstructionSidebar() {
         onClick={openSettings}
         type="button"
       >
-        <Icon name="settings" /> Settings
+        <Icon name="settings" />
+        <span>Settings</span>
       </button>
     </aside>
   );

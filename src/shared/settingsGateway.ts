@@ -1,4 +1,5 @@
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { invoke } from "@tauri-apps/api/core";
+import { isRecord } from "./contracts";
 import { publishNotice } from "./notices";
 
 export const SETTINGS_KEYS = {
@@ -9,42 +10,77 @@ export const SETTINGS_KEYS = {
 } as const;
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS];
+export type SettingsDocument = Partial<Record<SettingsKey, unknown>>;
 
-const SETTINGS_FILE = "settings.json";
+export const SETTINGS_COMMANDS = {
+  load: "load_settings",
+  save: "save_settings",
+} as const;
 
-const store = new LazyStore(SETTINGS_FILE);
+let activeSessionId: number | null = null;
+let nextRevision = 0;
 
-// Durable app-data persistence (survives WKWebView storage purges).
-// Reads may throw and are handled by the bootstrap; writes surface failures
-// on the notice bar instead of losing data silently.
+function parseLoadResponse(value: unknown): SettingsDocument {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    !Number.isSafeInteger(value.sessionId) ||
+    (value.sessionId as number) <= 0 ||
+    !isRecord(value.entries)
+  ) {
+    throw new Error("The native settings response was invalid.");
+  }
+
+  const document: SettingsDocument = {};
+  for (const key of Object.values(SETTINGS_KEYS)) {
+    if (Object.prototype.hasOwnProperty.call(value.entries, key)) {
+      document[key] = value.entries[key];
+    }
+  }
+  activeSessionId = value.sessionId as number;
+  nextRevision = 0;
+  return document;
+}
+
+async function dispatchWrite(entries: SettingsDocument): Promise<boolean> {
+  if (activeSessionId === null) {
+    publishNotice(
+      "error",
+      "Prompter could not save your settings because the settings session is unavailable.",
+    );
+    return false;
+  }
+
+  const revision = ++nextRevision;
+  try {
+    // Dispatch immediately. The native layer applies per-key revisions under
+    // one mutex, so out-of-order command completion cannot restore stale data.
+    await invoke(SETTINGS_COMMANDS.save, {
+      entries,
+      sessionId: activeSessionId,
+      revision,
+    });
+    return true;
+  } catch {
+    publishNotice(
+      "error",
+      "Prompter could not save your settings. Changes may be lost when it closes.",
+    );
+    return false;
+  }
+}
+
 export const settingsGateway = {
-  read(key: SettingsKey): Promise<unknown> {
-    return store.get(key);
+  async load(): Promise<SettingsDocument> {
+    activeSessionId = null;
+    return parseLoadResponse(await invoke<unknown>(SETTINGS_COMMANDS.load));
   },
 
-  async write(key: SettingsKey, value: unknown): Promise<void> {
-    try {
-      await store.set(key, value);
-      await store.save();
-    } catch {
-      publishNotice(
-        "error",
-        "Prompter could not save your settings. Changes may be lost when it closes.",
-      );
-    }
+  write(key: SettingsKey, value: unknown): Promise<boolean> {
+    return dispatchWrite({ [key]: value });
   },
 
-  async writeMany(entries: Partial<Record<SettingsKey, unknown>>): Promise<void> {
-    try {
-      for (const [key, value] of Object.entries(entries)) {
-        await store.set(key, value);
-      }
-      await store.save();
-    } catch {
-      publishNotice(
-        "error",
-        "Prompter could not save your settings. Changes may be lost when it closes.",
-      );
-    }
+  writeMany(entries: SettingsDocument): Promise<boolean> {
+    return dispatchWrite(entries);
   },
 };

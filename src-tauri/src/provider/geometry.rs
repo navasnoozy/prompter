@@ -5,6 +5,7 @@ use super::error::{ProviderCommandError, ProviderErrorCode};
 
 pub(crate) const MIN_PROVIDER_SIZE: f64 = 240.0;
 pub(crate) const MAX_PROVIDER_SIZE: f64 = 20_000.0;
+const MAX_PROVIDER_COORDINATE: f64 = 20_000.0;
 
 /// Used when the live title-bar height cannot be derived from the window.
 const FALLBACK_CONTENT_OFFSET_Y: f64 = 32.0;
@@ -31,6 +32,8 @@ impl ProviderBounds {
             || !self.y.is_finite()
             || !self.width.is_finite()
             || !self.height.is_finite()
+            || self.x.abs() > MAX_PROVIDER_COORDINATE
+            || self.y.abs() > MAX_PROVIDER_COORDINATE
             || self.width < MIN_PROVIDER_SIZE
             || self.height < MIN_PROVIDER_SIZE
             || self.width > MAX_PROVIDER_SIZE
@@ -125,6 +128,14 @@ mod tests {
             },
             ProviderBounds {
                 height: f64::MAX,
+                ..valid
+            },
+            ProviderBounds {
+                x: MAX_PROVIDER_COORDINATE + 1.0,
+                ..valid
+            },
+            ProviderBounds {
+                y: -MAX_PROVIDER_COORDINATE - 1.0,
                 ..valid
             },
         ] {

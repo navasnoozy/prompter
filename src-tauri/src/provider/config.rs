@@ -18,19 +18,18 @@ const GEMINI_EDITOR_SELECTORS: &[&str] = &[
     "textarea",
 ];
 
-/// Sign-in providers the embedded panes may navigate to in addition to their
-/// own domain. Everything else opens in the user's default browser so an
-/// address-bar-less pane can never present an arbitrary site.
-const SHARED_AUTH_DOMAINS: &[&str] = &[
+/// Each address-bar-less pane receives only its own provider and observed
+/// sign-in hosts. These lists intentionally remain separate so one provider
+/// never inherits another provider's credential origins.
+const CHATGPT_NAVIGATION_HOSTS: &[&str] = &[
+    "chatgpt.com",
+    "auth.openai.com",
     "accounts.google.com",
-    "accounts.youtube.com",
     "appleid.apple.com",
     "login.microsoftonline.com",
     "login.live.com",
 ];
-
-const CHATGPT_NAVIGATION_DOMAINS: &[&str] = &["chatgpt.com", "openai.com"];
-const GEMINI_NAVIGATION_DOMAINS: &[&str] = &["google.com"];
+const GEMINI_NAVIGATION_HOSTS: &[&str] = &["gemini.google.com", "accounts.google.com"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -64,33 +63,27 @@ impl Provider {
     }
 
     pub(crate) fn accepts_fill_url(self, url: &Url) -> bool {
-        url.scheme() == "https" && url.host_str() == Some(self.config().expected_fill_host)
+        url.scheme() == "https"
+            && url.port_or_known_default() == Some(443)
+            && url.host_str() == Some(self.config().expected_fill_host)
     }
 
-    fn navigation_domains(self) -> &'static [&'static str] {
+    fn navigation_hosts(self) -> &'static [&'static str] {
         match self {
-            Self::Chatgpt => CHATGPT_NAVIGATION_DOMAINS,
-            Self::Gemini => GEMINI_NAVIGATION_DOMAINS,
+            Self::Chatgpt => CHATGPT_NAVIGATION_HOSTS,
+            Self::Gemini => GEMINI_NAVIGATION_HOSTS,
         }
     }
 
     pub(crate) fn accepts_navigation_url(self, url: &Url) -> bool {
-        if url.scheme() != "https" {
+        if url.scheme() != "https" || url.port_or_known_default() != Some(443) {
             return false;
         }
         let Some(host) = url.host_str() else {
             return false;
         };
 
-        self.navigation_domains()
-            .iter()
-            .chain(SHARED_AUTH_DOMAINS)
-            .any(|domain| {
-                host == *domain
-                    || (host.len() > domain.len() + 1
-                        && host.ends_with(domain)
-                        && host.as_bytes()[host.len() - domain.len() - 1] == b'.')
-            })
+        self.navigation_hosts().contains(&host)
     }
 }
 
@@ -170,6 +163,8 @@ mod tests {
         );
         assert!(Provider::Gemini
             .accepts_fill_url(&Url::parse("https://gemini.google.com/app").unwrap()));
+        assert!(!Provider::Gemini
+            .accepts_fill_url(&Url::parse("https://gemini.google.com:8443/app").unwrap()));
     }
 
     #[test]
@@ -181,7 +176,6 @@ mod tests {
             (Provider::Chatgpt, "https://appleid.apple.com/auth"),
             (Provider::Gemini, "https://gemini.google.com/app"),
             (Provider::Gemini, "https://accounts.google.com/signin"),
-            (Provider::Gemini, "https://accounts.youtube.com/accounts"),
         ];
         for (provider, url) in allowed {
             assert!(
@@ -194,8 +188,20 @@ mod tests {
             (Provider::Chatgpt, "https://example.com/"),
             (Provider::Chatgpt, "https://evil-chatgpt.com/"),
             (Provider::Chatgpt, "https://chatgpt.com.evil.com/"),
+            (Provider::Chatgpt, "https://community.openai.com/"),
+            (Provider::Chatgpt, "https://accounts.youtube.com/accounts"),
+            (Provider::Chatgpt, "https://chatgpt.com:8443/"),
             (Provider::Chatgpt, "http://chatgpt.com/"),
             (Provider::Gemini, "https://chatgpt.com/"),
+            (Provider::Gemini, "https://sites.google.com/view/untrusted"),
+            (Provider::Gemini, "https://docs.google.com/document/example"),
+            (Provider::Gemini, "https://mail.google.com/"),
+            (Provider::Gemini, "https://accounts.youtube.com/accounts"),
+            (Provider::Gemini, "https://appleid.apple.com/auth"),
+            (
+                Provider::Gemini,
+                "https://login.microsoftonline.com/common/oauth2",
+            ),
             (Provider::Gemini, "https://notgoogle.com/"),
         ];
         for (provider, url) in denied {

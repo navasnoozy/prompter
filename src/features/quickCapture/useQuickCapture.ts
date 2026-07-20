@@ -34,7 +34,10 @@ export function useQuickCapture(): void {
   }, []);
 
   useEffect(() => {
-    const refresh = () => void useCaptureStore.getState().refreshStatus();
+    const refresh = () => {
+      void useCaptureStore.getState().refreshStatus();
+      void drainPendingOutcomes();
+    };
     refresh();
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);

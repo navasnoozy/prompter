@@ -6,7 +6,7 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   --ink: #20202a;
-  --muted: #777487;
+  --muted: #6f6a79;
   --border: #e8e4ef;
   --paper: #ffffff;
   --purple: #6e51d9;
@@ -18,13 +18,26 @@
 
 html, body, #root { min-height: 100%; margin: 0; }
 
+.boot-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #625d6c;
+  background: #f7f6fa;
+  font-size: 14px;
+  font-weight: 650;
+}
+.boot-screen > * + * { margin-left: 10px; }
+.boot-mark { color: #6e51d9; font-size: 22px; }
+
 button, input, textarea { font: inherit; }
 button { color: inherit; }
 
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible {
-  outline: 3px solid rgba(110, 81, 217, 0.2);
+button:focus,
+input:focus,
+textarea:focus {
+  outline: 3px solid #6e51d9;
   outline-offset: 2px;
 }
 
@@ -54,6 +67,17 @@ h2, p { margin-top: 0; }
 @keyframes status-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .boot-screen {
+    color: #d9d5e2;
+    background: #17151d;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.progress { animation: none; }
 }
 
 .error-boundary {

@@ -5,6 +5,7 @@ import type { InstructionDraft } from "./model";
 import { useInstructionStore } from "./store";
 
 const TITLE_ID = "instruction-editor-title";
+const VALIDATION_ID = "instruction-editor-validation";
 
 export function InstructionEditorDialog() {
   const editorTarget = useInstructionStore((state) => state.editorTarget);
@@ -24,12 +25,18 @@ export function InstructionEditorDialog() {
       : { name: "", beforeText: "", afterText: "", color: "rose" },
   );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   if (editorTarget === null) return null;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!draft.name.trim() || !draft.beforeText.trim()) return;
+    if (!draft.name.trim() || !draft.beforeText.trim()) {
+      setValidationError(
+        "Enter a name and an instruction to place before the source text.",
+      );
+      return;
+    }
     saveDraft(draft);
   }
 
@@ -62,13 +69,16 @@ export function InstructionEditorDialog() {
         <label>
           Name
           <input
+            aria-describedby={validationError ? VALIDATION_ID : undefined}
+            aria-invalid={Boolean(validationError && !draft.name.trim())}
             autoFocus
-            onChange={(event) =>
+            onChange={(event) => {
+              setValidationError(null);
               setDraft((current) => ({
                 ...current,
                 name: event.target.value,
-              }))
-            }
+              }));
+            }}
             placeholder="Example: Friendly email"
             required
             value={draft.name}
@@ -77,16 +87,24 @@ export function InstructionEditorDialog() {
         <p className="instruction-editor-helper">
           Prompter places your text between these instructions.
         </p>
+        {validationError && (
+          <p className="instruction-editor-validation" id={VALIDATION_ID} role="alert">
+            {validationError}
+          </p>
+        )}
         <label>
           Instruction before text
           <textarea
+            aria-describedby={validationError ? VALIDATION_ID : undefined}
+            aria-invalid={Boolean(validationError && !draft.beforeText.trim())}
             className="instruction-before-text"
-            onChange={(event) =>
+            onChange={(event) => {
+              setValidationError(null);
               setDraft((current) => ({
                 ...current,
                 beforeText: event.target.value,
-              }))
-            }
+              }));
+            }}
             placeholder="Rewrite the text in a friendly and helpful tone…"
             required
             value={draft.beforeText}
@@ -122,8 +140,8 @@ export function InstructionEditorDialog() {
               }
               type="button"
             >
-              <Icon name="trash" size={16} />{" "}
-              {confirmingDelete ? "Confirm delete" : "Delete"}
+              <Icon name="trash" size={16} />
+              <span>{confirmingDelete ? "Confirm delete" : "Delete"}</span>
             </button>
           )}
           <span />

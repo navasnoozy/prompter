@@ -7,39 +7,65 @@ import type { CaptureOutcome, QuickCaptureStatus } from "./model";
 type CaptureState = {
   sourceText: string;
   status: QuickCaptureStatus | null;
+  isRefreshingStatus: boolean;
+  isCapturingClipboard: boolean;
   isRequestingPermission: boolean;
   isRetryingRegistration: boolean;
   setSourceText: (text: string) => void;
-  refreshStatus: () => Promise<void>;
+  refreshStatus: (reportFailure?: boolean) => Promise<void>;
   captureClipboard: () => Promise<void>;
   requestPermission: () => Promise<void>;
   retryRegistration: () => Promise<void>;
   openSystemSettings: () => Promise<void>;
 };
 
-export const useCaptureStore = create<CaptureState>()((set) => ({
+let statusRequestGeneration = 0;
+let sourceTextRevision = 0;
+
+export const useCaptureStore = create<CaptureState>()((set, get) => ({
   sourceText: "",
   status: null,
+  isRefreshingStatus: false,
+  isCapturingClipboard: false,
   isRequestingPermission: false,
   isRetryingRegistration: false,
 
-  setSourceText: (text) => set({ sourceText: text }),
+  setSourceText: (text) => {
+    sourceTextRevision += 1;
+    set({ sourceText: text });
+  },
 
-  refreshStatus: async () => {
+  refreshStatus: async (reportFailure = false) => {
+    const generation = ++statusRequestGeneration;
+    set({ isRefreshingStatus: true });
     try {
-      set({ status: await quickCaptureGateway.getStatus() });
-    } catch {
-      // The next window focus retries; the UI treats null as "checking".
+      const status = await quickCaptureGateway.getStatus();
+      if (generation === statusRequestGeneration) set({ status });
+    } catch (error) {
+      if (reportFailure && generation === statusRequestGeneration) {
+        publishNotice("error", normalizeQuickCaptureError(error).message);
+      }
+    } finally {
+      if (generation === statusRequestGeneration) {
+        set({ isRefreshingStatus: false });
+      }
     }
   },
 
   captureClipboard: async () => {
+    if (get().isCapturingClipboard) return;
+    const revisionAtStart = sourceTextRevision;
+    set({ isCapturingClipboard: true });
     try {
       const payload = await quickCaptureGateway.readClipboardText();
+      if (sourceTextRevision !== revisionAtStart) return;
+      sourceTextRevision += 1;
       set({ sourceText: payload.text });
       publishNotice("success", "Clipboard text captured");
     } catch (error) {
       publishNotice("error", normalizeQuickCaptureError(error).message);
+    } finally {
+      set({ isCapturingClipboard: false });
     }
   },
 
@@ -47,7 +73,8 @@ export const useCaptureStore = create<CaptureState>()((set) => ({
     set({ isRequestingPermission: true });
     try {
       const status = await quickCaptureGateway.requestPermission();
-      set({ status });
+      statusRequestGeneration += 1;
+      set({ status, isRefreshingStatus: false });
       publishNotice(
         status.permission === "granted" ? "success" : "info",
         status.permission === "granted"
@@ -65,7 +92,8 @@ export const useCaptureStore = create<CaptureState>()((set) => ({
     set({ isRetryingRegistration: true });
     try {
       const status = await quickCaptureGateway.retryRegistration();
-      set({ status });
+      statusRequestGeneration += 1;
+      set({ status, isRefreshingStatus: false });
       publishNotice(
         status.registration === "registered" ? "success" : "info",
         status.registration === "registered"
@@ -108,12 +136,14 @@ function focusPromptInput(): void {
 
 function applyOutcome(outcome: CaptureOutcome): void {
   if (outcome.kind === "success") {
+    sourceTextRevision += 1;
     useCaptureStore.setState({ sourceText: outcome.text });
     focusPromptInput();
-    const warning = outcome.warnings[0];
     publishNotice(
-      warning ? "info" : "success",
-      warning?.message ?? "Selected text captured",
+      outcome.warnings.length > 0 ? "info" : "success",
+      outcome.warnings.length > 0
+        ? outcome.warnings.map(({ message }) => message).join(" ")
+        : "Selected text captured",
     );
     return;
   }
@@ -131,6 +161,7 @@ function applyOutcome(outcome: CaptureOutcome): void {
 
 let drainRequested = false;
 let isDraining = false;
+const processedOutcomeIds = new Set<string>();
 
 // Durable drain: outcomes queue natively until the frontend collects them,
 // so captures that finish while the window is hidden are never lost.
@@ -142,8 +173,21 @@ export async function drainPendingOutcomes(): Promise<void> {
   try {
     while (drainRequested) {
       drainRequested = false;
-      const outcomes = await quickCaptureGateway.takePendingOutcomes();
-      outcomes.forEach(applyOutcome);
+      const outcomes = await quickCaptureGateway.listPendingOutcomes();
+      for (const outcome of outcomes) {
+        if (!processedOutcomeIds.has(outcome.requestId)) {
+          applyOutcome(outcome);
+          processedOutcomeIds.add(outcome.requestId);
+        }
+      }
+      if (outcomes.length > 0) {
+        await quickCaptureGateway.acknowledgeOutcomes(
+          outcomes.map(({ requestId }) => requestId),
+        );
+        for (const outcome of outcomes) {
+          processedOutcomeIds.delete(outcome.requestId);
+        }
+      }
     }
   } catch (error) {
     publishNotice("error", normalizeQuickCaptureError(error).message);

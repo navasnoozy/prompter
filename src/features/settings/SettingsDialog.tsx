@@ -23,6 +23,9 @@ export function SettingsDialog() {
   const isRequestingPermission = useCaptureStore(
     (state) => state.isRequestingPermission,
   );
+  const isRefreshingStatus = useCaptureStore(
+    (state) => state.isRefreshingStatus,
+  );
   const isRetryingRegistration = useCaptureStore(
     (state) => state.isRetryingRegistration,
   );
@@ -68,18 +71,22 @@ export function SettingsDialog() {
           </div>
           <div className="theme-options" role="group" aria-label="Appearance">
             <button
+              aria-pressed={theme === "light"}
               className={theme === "light" ? "selected" : ""}
               onClick={() => setTheme("light")}
               type="button"
             >
-              <Icon name="sun" size={16} /> Light
+              <Icon name="sun" size={16} />
+              <span>Light</span>
             </button>
             <button
+              aria-pressed={theme === "dark"}
               className={theme === "dark" ? "selected" : ""}
               onClick={() => setTheme("dark")}
               type="button"
             >
-              <Icon name="moon" size={16} /> Dark
+              <Icon name="moon" size={16} />
+              <span>Dark</span>
             </button>
           </div>
         </div>
@@ -174,7 +181,9 @@ export function SettingsDialog() {
                 />
                 <strong>macOS permission</strong>
                 <p>
-                  {permissionReady
+                  {!quickCaptureStatus
+                    ? "Checking macOS Accessibility permission…"
+                    : permissionReady
                     ? "Allowed to press Copy for your selected text."
                     : "Required so Prompter can press Copy for you. Text is never sent automatically."}
                 </p>
@@ -183,7 +192,7 @@ export function SettingsDialog() {
           </div>
 
           <div className="settings-action-row">
-            {!permissionReady && (
+            {quickCaptureStatus && !permissionReady && (
               <button
                 className="primary-button settings-action-button"
                 disabled={isRequestingPermission}
@@ -193,7 +202,7 @@ export function SettingsDialog() {
                 {isRequestingPermission ? "Requesting…" : "Enable Quick Capture"}
               </button>
             )}
-            {!permissionReady && (
+            {quickCaptureStatus && !permissionReady && (
               <button
                 className="secondary-button settings-action-button"
                 onClick={() => void openSystemSettings()}
@@ -204,10 +213,11 @@ export function SettingsDialog() {
             )}
             <button
               className="secondary-button settings-action-button"
-              onClick={() => void refreshQuickCapture()}
+              disabled={isRefreshingStatus}
+              onClick={() => void refreshQuickCapture(true)}
               type="button"
             >
-              Recheck
+              {isRefreshingStatus ? "Checking…" : "Recheck"}
             </button>
           </div>
         </div>

@@ -10,7 +10,6 @@
   height: 36px;
   display: flex;
   align-items: center;
-  gap: 8px;
   padding: 0 11px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -20,6 +19,7 @@
   font-size: 12px;
   font-weight: 650;
 }
+.provider-button > * + * { margin-left: 8px; }
 .provider-button.selected { color: #4e35a7; border-color: #cfc1f3; background: #f7f4ff; }
 .provider-logo { width: 21px; height: 21px; display: grid; place-items: center; border-radius: 7px; color: #fff; font-size: 12px; font-weight: 700; }
 .provider-logo.chatgpt { background: #292a2d; }
@@ -46,12 +46,18 @@
 }
 .provider-webview-host {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 2;
 }
 .provider-loading-placeholder {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -72,7 +78,7 @@
   box-shadow: 0 12px 35px rgba(91, 62, 170, 0.1);
 }
 .provider-loading-placeholder strong { color: #4e4859; font-size: 13px; }
-.provider-loading-placeholder p { max-width: 280px; margin: 7px 0 0; color: #9993a2; font-size: 10px; line-height: 1.5; }
+.provider-loading-placeholder p { max-width: 280px; margin: 7px 0 0; color: #6e6876; font-size: 12px; line-height: 1.5; }
 
 .bottom-dock {
   min-height: 118px;
@@ -96,7 +102,7 @@
   height: auto;
   min-height: 43px;
   padding: 0 9px;
-  font-size: 10px;
+  font-size: 11px;
 }
 .dock-provider-options .provider-button > .icon { margin-left: auto; }
 .dock-provider-options .provider-logo { width: 22px; height: 22px; }
@@ -114,43 +120,43 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
 }
-.dock-text-heading > span { color: #4e4859; font-size: 10px; font-weight: 750; }
+.dock-text-heading > * + *,
+.dock-text-meta > * + * { margin-left: 10px; }
+.dock-text-heading > span { color: #4e4859; font-size: 12px; font-weight: 750; }
 .dock-text-heading button,
 .dock-text-meta button {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
   padding: 0;
   border: 0;
   color: var(--purple);
   background: transparent;
   cursor: pointer;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
 }
+.dock-text-heading button > * + *,
+.dock-text-meta button > * + * { margin-left: 5px; }
 .dock-text-box textarea {
   width: 100%;
   min-height: 48px;
   padding: 7px 0 5px;
   resize: none;
   border: 0;
-  outline: 0;
   color: #37313e;
   background: transparent;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.4;
 }
-.dock-text-box textarea::placeholder { color: #aaa4b2; }
-.dock-text-meta { color: #9b95a3; font-size: 8px; }
-.dock-text-meta button { color: #8b8492; font-weight: 600; }
+.dock-text-box textarea::placeholder { color: #716b79; }
+.dock-text-meta { color: #6f6877; font-size: 11px; }
+.dock-text-meta button { color: #6e51d9; font-weight: 650; }
 .dock-place-button {
   min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
   padding: 12px;
   border: 0;
   border-radius: 12px;
@@ -159,13 +165,15 @@
   box-shadow: 0 10px 22px rgba(91, 56, 192, .22);
   cursor: pointer;
 }
+.dock-place-button > * + * { margin-left: 9px; }
 .dock-place-button > span { min-width: 0; display: grid; gap: 3px; text-align: left; }
-.dock-place-button strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.dock-place-button small { color: rgba(255, 255, 255, .7); font-size: 8px; }
+.dock-place-button strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.dock-place-button small { color: rgba(255, 255, 255, .86); font-size: 10px; }
 .dock-place-button > .icon:last-child { margin-left: auto; }
 .dock-place-button:hover:not(:disabled) { background: linear-gradient(135deg, #6848d4, #5130b5); transform: translateY(-1px); }
 .dock-place-button:disabled { opacity: .46; cursor: not-allowed; box-shadow: none; }
 
-.status-bar { min-height: 29px; display: flex; align-items: center; gap: 8px; color: #8d8895; font-size: 10px; }
+.status-bar { position: relative; z-index: 20; min-height: 29px; display: flex; align-items: center; padding: 0 5px; color: #686270; background: var(--paper); font-size: 11px; }
+.status-bar > * + * { margin-left: 8px; }
 .status-bar .status-dot { width: 6px; height: 6px; }
 .status-spacer { flex: 1; }

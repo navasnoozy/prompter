@@ -14,10 +14,10 @@ export default defineConfig(async () => ({
     }),
   ],
 
-  // The only runtime is macOS WKWebView; ES2022 enables top-level await in
-  // the bootstrap.
+  // Keep the bundle compatible with the WKWebView shipped on the oldest
+  // supported macOS release (Catalina / Safari 13 generation).
   build: {
-    target: "es2022",
+    target: "safari13",
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

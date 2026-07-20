@@ -44,7 +44,13 @@ impl PromptInput {
             return Err(PromptComposeError::MissingText);
         }
 
-        let combined_length = before_text.len() + text.len() + after_text.len();
+        let separator_bytes = if after_text.is_empty() { 2 } else { 4 };
+        let combined_length = before_text
+            .len()
+            .checked_add(text.len())
+            .and_then(|length| length.checked_add(after_text.len()))
+            .and_then(|length| length.checked_add(separator_bytes))
+            .ok_or(PromptComposeError::TooLarge)?;
         if combined_length > MAX_PROMPT_BYTES {
             return Err(PromptComposeError::TooLarge);
         }
@@ -129,6 +135,32 @@ mod tests {
 
         assert_eq!(
             compose("Rewrite clearly", &oversized, ""),
+            Err(PromptComposeError::TooLarge)
+        );
+    }
+
+    #[test]
+    fn compose_counts_separator_bytes_at_the_exact_boundary() {
+        let exact_text = "x".repeat(MAX_PROMPT_BYTES - "a".len() - 2);
+        assert_eq!(
+            compose("a", &exact_text, "").unwrap().len(),
+            MAX_PROMPT_BYTES
+        );
+
+        let too_large = format!("{exact_text}x");
+        assert_eq!(
+            compose("a", &too_large, ""),
+            Err(PromptComposeError::TooLarge)
+        );
+    }
+
+    #[test]
+    fn compose_counts_utf8_bytes_and_both_optional_separators() {
+        let after = "✨";
+        let text = "x".repeat(MAX_PROMPT_BYTES - "a".len() - after.len() - 4);
+        assert_eq!(compose("a", &text, after).unwrap().len(), MAX_PROMPT_BYTES);
+        assert_eq!(
+            compose("a", &format!("{text}x"), after),
             Err(PromptComposeError::TooLarge)
         );
     }

@@ -37,11 +37,13 @@ export type PromptComposition = {
 };
 
 export type PromptFilledEvent = {
+  version: 1;
   provider: Provider;
   requestId: string;
 };
 
 export type ProviderErrorEvent = PromptFilledEvent & {
+  code: ProviderErrorCode;
   message: string;
 };
 
@@ -54,6 +56,8 @@ const PROVIDER_ERROR_CODES = [
   "invalid_bounds",
   "invalid_request",
   "wrong_host",
+  "editor_not_found",
+  "editor_update_failed",
   "missing_instruction",
   "missing_text",
   "prompt_too_large",

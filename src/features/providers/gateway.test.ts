@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   normalizeProviderError,
@@ -13,6 +14,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 describe("provider gateway", () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
+    vi.mocked(listen).mockReset();
   });
 
   it("places a prompt through the single merged command", async () => {
@@ -76,5 +78,47 @@ describe("provider gateway", () => {
       expect(normalized.code).toBe("internal");
       expect(normalized.message.length).toBeGreaterThan(0);
     }
+  });
+
+  it("validates versioned provider completion events", async () => {
+    const nativeHandlers: Array<(event: { payload: unknown }) => void> = [];
+    vi.mocked(listen).mockImplementation(async (_event, handler) => {
+      nativeHandlers.push(handler as (event: { payload: unknown }) => void);
+      return () => {};
+    });
+    const filled = vi.fn();
+    const failed = vi.fn();
+    await providerGateway.onPromptFilled(filled);
+    await providerGateway.onProviderError(failed);
+
+    nativeHandlers[0]({
+      payload: { version: 99, provider: "chatgpt", requestId: "request-1" },
+    });
+    nativeHandlers[0]({
+      payload: { version: 1, provider: "chatgpt", requestId: "request-1" },
+    });
+    nativeHandlers[1]({
+      payload: {
+        version: 1,
+        provider: "chatgpt",
+        requestId: "request-1",
+        code: "not-a-code",
+        message: "bad",
+      },
+    });
+    nativeHandlers[1]({
+      payload: {
+        version: 1,
+        provider: "chatgpt",
+        requestId: "request-1",
+        code: "editor_not_found",
+        message: "Editor not found",
+      },
+    });
+
+    expect(filled).toHaveBeenCalledTimes(1);
+    expect(failed).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "editor_not_found" }),
+    );
   });
 });
