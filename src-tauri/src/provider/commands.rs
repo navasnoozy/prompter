@@ -253,12 +253,10 @@ pub(crate) fn show_provider_webview(
                 return true;
             }
 
-            warn!(
-                target: "prompter::provider",
-                "event=embedded_navigation_blocked scheme={} host={}",
-                url.scheme(),
-                url.host_str().unwrap_or("none")
-            );
+            // Links the provider page can't display (e.g., external references in
+            // AI responses, Terms of Service, documentation links) are handed to the
+            // user's default browser instead of being silently swallowed.
+            open_url_externally(&bridge_app, url);
             false
         })
         .on_new_window(move |url, _| {
@@ -442,7 +440,10 @@ fn provider_fill_script(
 /// Hands a URL the embedded pane may not display to the user's default
 /// browser. Content is never logged; only failure reasons are.
 fn open_url_externally(app: &AppHandle, url: &Url) {
-    if url.scheme() != "https" || url.port_or_known_default() != Some(443) {
+    // Allow http:// and https:// to open in the user's default browser.
+    // Block javascript:, data:, file:, and other dangerous schemes that
+    // could execute code or access local files outside the sandbox.
+    if !matches!(url.scheme(), "https" | "http") {
         warn!(
             target: "prompter::provider",
             "event=external_navigation_blocked scheme={}",

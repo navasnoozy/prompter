@@ -4,11 +4,11 @@
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 10;
+  z-index: 100;
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(24, 20, 34, 0.48);
+  background: var(--backdrop-bg, rgba(24, 20, 34, 0.48));
   -webkit-backdrop-filter: blur(7px);
   backdrop-filter: blur(7px);
 }

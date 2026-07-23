@@ -12,6 +12,7 @@
   --purple: #6e51d9;
   --purple-dark: #5638c0;
   --purple-soft: #f1edff;
+  --backdrop-bg: rgba(24, 20, 34, 0.48);
 }
 
 * { box-sizing: border-box; }
@@ -70,9 +71,36 @@ h2, p { margin-top: 0; }
 }
 
 @media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f0edf6;
+    --muted: #9d97aa;
+    --border: #34303f;
+    --paper: #1b1922;
+    --purple: #8c6dfd;
+    --purple-dark: #7452e6;
+    --purple-soft: #282038;
+    --backdrop-bg: rgba(10, 8, 16, 0.65);
+  }
+
   .boot-screen {
     color: #d9d5e2;
     background: #17151d;
+  }
+
+  .icon-button {
+    color: #d4cedb;
+    border-color: var(--border);
+    background: #24212c;
+  }
+  .icon-button:hover {
+    color: var(--purple);
+    border-color: #55447a;
+  }
+
+  .error-boundary button {
+    background: var(--purple);
+    color: #fff;
+    border-color: var(--border);
   }
 }
 

@@ -1,8 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { isRecord } from "../../shared/contracts";
 import {
-  isProvider,
+  PromptFilledEventSchema,
+  ProviderErrorEventSchema,
+} from "../../shared/schemas";
+import {
   parseProviderCommandError,
   type PromptComposition,
   type PromptFilledEvent,
@@ -25,27 +27,13 @@ export const TAURI_EVENTS = {
 } as const;
 
 function parsePromptFilled(value: unknown): PromptFilledEvent | null {
-  if (
-    !isRecord(value) ||
-    value.version !== 1 ||
-    !isProvider(value.provider) ||
-    typeof value.requestId !== "string" ||
-    !value.requestId
-  ) {
-    return null;
-  }
-
-  return { version: 1, provider: value.provider, requestId: value.requestId };
+  const result = PromptFilledEventSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 function parseProviderError(value: unknown): ProviderErrorEvent | null {
-  const filled = parsePromptFilled(value);
-  const error = parseProviderCommandError(value);
-  if (!filled || !error) {
-    return null;
-  }
-
-  return { ...filled, code: error.code, message: error.message };
+  const result = ProviderErrorEventSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function normalizeProviderError(error: unknown): ProviderCommandError {

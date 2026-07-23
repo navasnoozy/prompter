@@ -20,6 +20,19 @@ export default defineConfig(async () => ({
     target: "safari13",
   },
 
+  test: {
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.*",
+        "src/**/*.d.ts",
+        "src/vite-env.d.ts",
+      ],
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

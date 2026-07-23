@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { isRecord } from "./contracts";
 import { publishNotice } from "./notices";
+import { SettingsLoadResponseSchema } from "./schemas";
 
 export const SETTINGS_KEYS = {
   presets: "presets",
@@ -21,23 +21,18 @@ let activeSessionId: number | null = null;
 let nextRevision = 0;
 
 function parseLoadResponse(value: unknown): SettingsDocument {
-  if (
-    !isRecord(value) ||
-    value.version !== 1 ||
-    !Number.isSafeInteger(value.sessionId) ||
-    (value.sessionId as number) <= 0 ||
-    !isRecord(value.entries)
-  ) {
+  const result = SettingsLoadResponseSchema.safeParse(value);
+  if (!result.success) {
     throw new Error("The native settings response was invalid.");
   }
 
   const document: SettingsDocument = {};
   for (const key of Object.values(SETTINGS_KEYS)) {
-    if (Object.prototype.hasOwnProperty.call(value.entries, key)) {
-      document[key] = value.entries[key];
+    if (Object.prototype.hasOwnProperty.call(result.data.entries, key)) {
+      document[key] = result.data.entries[key];
     }
   }
-  activeSessionId = value.sessionId as number;
+  activeSessionId = result.data.sessionId;
   nextRevision = 0;
   return document;
 }

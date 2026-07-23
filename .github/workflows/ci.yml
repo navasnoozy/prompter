@@ -53,8 +53,8 @@ jobs:
       - name: Audit JavaScript dependencies
         run: npm audit --audit-level=low
 
-      - name: Frontend tests
-        run: npm run test
+      - name: Frontend tests with coverage
+        run: npm run test -- --coverage
 
       - name: Lint
         run: npm run lint

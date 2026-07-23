@@ -29,6 +29,29 @@ use settings::{load_settings, save_settings, SettingsCoordinator};
 include!("command_manifest.rs");
 
 pub fn run() {
+    // Install a structured panic handler before any Tauri setup. This ensures
+    // panics during plugin initialization or objc2 FFI are captured in the
+    // rotating log file, making post-mortem debugging possible for shipped builds.
+    std::panic::set_hook(Box::new(|info| {
+        let location = info.location().map_or_else(
+            || "unknown location".to_string(),
+            |loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()),
+        );
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("unknown cause");
+        // eprintln ensures the message reaches stderr even if the log plugin
+        // hasn't initialized yet.
+        eprintln!("Prompter fatal panic at {location}: {message}");
+        log::error!(
+            target: "prompter::panic",
+            "event=unrecoverable_panic location={location} message={message}"
+        );
+    }));
+
     let app = tauri::Builder::default()
         .menu(app_shortcuts::build_menu)
         .on_menu_event(app_shortcuts::handle_menu_event)

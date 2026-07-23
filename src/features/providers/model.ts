@@ -1,4 +1,5 @@
-import { isNonEmptyString, isRecord } from "../../shared/contracts";
+import { z } from "zod";
+import { ProviderCommandErrorSchema, ProviderErrorCodeSchema, ProviderSchema } from "../../shared/schemas";
 
 export const PROVIDERS = {
   chatgpt: {
@@ -16,7 +17,7 @@ export type Provider = keyof typeof PROVIDERS;
 export const PROVIDER_ORDER = Object.keys(PROVIDERS) as Provider[];
 
 export function isProvider(value: unknown): value is Provider {
-  return value === "chatgpt" || value === "gemini";
+  return ProviderSchema.safeParse(value).success;
 }
 
 export function getProviderLabel(provider: Provider): string {
@@ -42,31 +43,14 @@ export type PromptFilledEvent = {
   requestId: string;
 };
 
+export type ProviderErrorCode = z.infer<typeof ProviderErrorCodeSchema>;
+
 export type ProviderErrorEvent = PromptFilledEvent & {
   code: ProviderErrorCode;
   message: string;
 };
 
 export const PROVIDER_CONTRACT_VERSION = 1;
-
-const PROVIDER_ERROR_CODES = [
-  "window_missing",
-  "webview_missing",
-  "webview_operation_failed",
-  "invalid_bounds",
-  "invalid_request",
-  "wrong_host",
-  "editor_not_found",
-  "editor_update_failed",
-  "missing_instruction",
-  "missing_text",
-  "prompt_too_large",
-  "internal",
-] as const;
-
-export type ProviderErrorCode = (typeof PROVIDER_ERROR_CODES)[number];
-
-const ERROR_CODES = new Set<string>(PROVIDER_ERROR_CODES);
 
 export type ProviderCommandError = {
   version: 1;
@@ -77,19 +61,6 @@ export type ProviderCommandError = {
 export function parseProviderCommandError(
   value: unknown,
 ): ProviderCommandError | null {
-  if (
-    !isRecord(value) ||
-    value.version !== PROVIDER_CONTRACT_VERSION ||
-    typeof value.code !== "string" ||
-    !ERROR_CODES.has(value.code) ||
-    !isNonEmptyString(value.message)
-  ) {
-    return null;
-  }
-
-  return {
-    version: PROVIDER_CONTRACT_VERSION,
-    code: value.code as ProviderErrorCode,
-    message: value.message,
-  };
+  const result = ProviderCommandErrorSchema.safeParse(value);
+  return result.success ? result.data : null;
 }

@@ -6,6 +6,8 @@ import { useInstructionStore } from "./store";
 
 const TITLE_ID = "instruction-editor-title";
 const VALIDATION_ID = "instruction-editor-validation";
+const MAX_NAME_LENGTH = 100;
+const MAX_INSTRUCTION_LENGTH = 100_000;
 
 export function InstructionEditorDialog() {
   const editorTarget = useInstructionStore((state) => state.editorTarget);
@@ -34,6 +36,21 @@ export function InstructionEditorDialog() {
     if (!draft.name.trim() || !draft.beforeText.trim()) {
       setValidationError(
         "Enter a name and an instruction to place before the source text.",
+      );
+      return;
+    }
+    if (draft.name.length > MAX_NAME_LENGTH) {
+      setValidationError(
+        `The name must be ${MAX_NAME_LENGTH} characters or fewer.`,
+      );
+      return;
+    }
+    if (
+      draft.beforeText.length > MAX_INSTRUCTION_LENGTH ||
+      draft.afterText.length > MAX_INSTRUCTION_LENGTH
+    ) {
+      setValidationError(
+        "Each instruction field must be 100,000 characters or fewer.",
       );
       return;
     }
@@ -72,6 +89,7 @@ export function InstructionEditorDialog() {
             aria-describedby={validationError ? VALIDATION_ID : undefined}
             aria-invalid={Boolean(validationError && !draft.name.trim())}
             autoFocus
+            maxLength={MAX_NAME_LENGTH}
             onChange={(event) => {
               setValidationError(null);
               setDraft((current) => ({
@@ -98,6 +116,7 @@ export function InstructionEditorDialog() {
             aria-describedby={validationError ? VALIDATION_ID : undefined}
             aria-invalid={Boolean(validationError && !draft.beforeText.trim())}
             className="instruction-before-text"
+            maxLength={MAX_INSTRUCTION_LENGTH}
             onChange={(event) => {
               setValidationError(null);
               setDraft((current) => ({
@@ -114,6 +133,7 @@ export function InstructionEditorDialog() {
           Instruction after text (optional)
           <textarea
             className="instruction-after-text"
+            maxLength={MAX_INSTRUCTION_LENGTH}
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
