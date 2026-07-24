@@ -1,12 +1,6 @@
 // @vitest-environment jsdom
 import { createRef } from "react";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ProviderNavigationState } from "./model";
 import { ProviderBrowser } from "./ProviderBrowser";
@@ -38,7 +32,7 @@ describe("ProviderBrowser", () => {
 
   afterEach(cleanup);
 
-  it("never exposes controls for a hidden native pane", () => {
+  it("shows the opening placeholder while the panel is closed", () => {
     act(() => {
       useProviderStore
         .getState()
@@ -49,11 +43,6 @@ describe("ProviderBrowser", () => {
     render(<ProviderBrowser hostRef={createRef<HTMLDivElement>()} />);
 
     expect(
-      screen.queryByRole("navigation", {
-        name: "ChatGPT browser controls",
-      }),
-    ).toBeNull();
-    expect(
       screen
         .getByText("Opening ChatGPT…")
         .closest("[role='status']")
@@ -61,7 +50,7 @@ describe("ProviderBrowser", () => {
     ).toBe("false");
   });
 
-  it("scopes busy semantics to browser content and keeps Stop accessible", () => {
+  it("scopes busy semantics to browser content and announces loading", () => {
     act(() => {
       useProviderStore
         .getState()
@@ -79,10 +68,6 @@ describe("ProviderBrowser", () => {
     const host = container.querySelector("#provider-browser-content");
     expect(region.hasAttribute("aria-busy")).toBe(false);
     expect(host?.getAttribute("aria-busy")).toBe("true");
-    fireEvent.focus(screen.getByRole("button", { name: "Go back" }));
-    expect(
-      screen.getByRole("button", { name: "Stop loading page" }),
-    ).toBeTruthy();
     expect(
       screen.getByRole("status", {
         name: "",

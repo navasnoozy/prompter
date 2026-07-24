@@ -61,10 +61,9 @@ describe("ProviderNavigationCapsule", () => {
 
   afterEach(() => {
     cleanup();
-    vi.unstubAllGlobals();
   });
 
-  it("shows Back when collapsed and reveals the remaining controls on hover", () => {
+  it("always shows all three controls", () => {
     render(
       <ProviderNavigationCapsule
         isPlacing={false}
@@ -73,47 +72,12 @@ describe("ProviderNavigationCapsule", () => {
       />,
     );
 
-    const controls = screen.getByRole("navigation", {
-      name: "ChatGPT browser controls",
-    });
+    expect(
+      screen.getByRole("navigation", { name: "ChatGPT browser controls" }),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Go forward" }),
-    ).toBeNull();
-
-    fireEvent.pointerEnter(controls, { pointerType: "mouse" });
-    expect(
-      screen.getByRole("button", { name: "Go forward" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Reload page" }),
-    ).toBeTruthy();
-
-    fireEvent.pointerLeave(controls, { pointerType: "mouse" });
-    expect(
-      screen.queryByRole("button", { name: "Go forward" }),
-    ).toBeNull();
-  });
-
-  it("expands for keyboard focus and Escape collapses back to Back", () => {
-    render(
-      <ProviderNavigationCapsule
-        isPlacing={false}
-        navigation={navigation()}
-        provider="chatgpt"
-      />,
-    );
-
-    const back = screen.getByRole("button", { name: "Go back" });
-    fireEvent.focus(back);
-    const forward = screen.getByRole("button", { name: "Go forward" });
-    forward.focus();
-    fireEvent.keyDown(forward, { key: "Escape" });
-
-    expect(document.activeElement).toBe(back);
-    expect(
-      screen.queryByRole("button", { name: "Go forward" }),
-    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Go forward" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload page" })).toBeTruthy();
   });
 
   it.each([
@@ -128,8 +92,6 @@ describe("ProviderNavigationCapsule", () => {
         provider="chatgpt"
       />,
     );
-    const controls = screen.getByRole("navigation");
-    fireEvent.pointerEnter(controls, { pointerType: "mouse" });
     fireEvent.click(screen.getByRole("button", { name: label }));
 
     await waitFor(() =>
@@ -150,9 +112,6 @@ describe("ProviderNavigationCapsule", () => {
         provider="chatgpt"
       />,
     );
-    fireEvent.pointerEnter(screen.getByRole("navigation"), {
-      pointerType: "mouse",
-    });
 
     expect(
       screen.queryByRole("button", { name: "Reload page" }),
@@ -265,67 +224,5 @@ describe("ProviderNavigationCapsule", () => {
     await waitFor(() =>
       expect(providerGateway.controlNavigation).toHaveBeenCalledTimes(2),
     );
-  });
-
-  it("stays expanded while focus remains inside and collapses on outside focus", () => {
-    render(
-      <>
-        <button type="button">Outside</button>
-        <ProviderNavigationCapsule
-          isPlacing={false}
-          navigation={navigation()}
-          provider="chatgpt"
-        />
-      </>,
-    );
-    const controls = screen.getByRole("navigation");
-    fireEvent.pointerEnter(controls, { pointerType: "mouse" });
-    const forward = screen.getByRole("button", { name: "Go forward" });
-    forward.focus();
-    fireEvent.pointerLeave(controls, { pointerType: "mouse" });
-
-    expect(
-      screen.getByRole("button", { name: "Reload page" }),
-    ).toBeTruthy();
-
-    const outside = screen.getByRole("button", { name: "Outside" });
-    fireEvent.blur(forward, { relatedTarget: outside });
-    outside.focus();
-    expect(controls.getAttribute("data-expanded")).toBe("false");
-    expect(forward.tabIndex).toBe(-1);
-  });
-
-  it("keeps all 44px controls exposed for any coarse pointer", () => {
-    const addEventListener = vi.fn();
-    const removeEventListener = vi.fn();
-    const matchMedia = vi.fn().mockReturnValue({
-      matches: true,
-      media: "",
-      onchange: null,
-      addEventListener,
-      removeEventListener,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    });
-    vi.stubGlobal("matchMedia", matchMedia);
-
-    render(
-      <ProviderNavigationCapsule
-        isPlacing={false}
-        navigation={navigation()}
-        provider="chatgpt"
-      />,
-    );
-
-    expect(matchMedia).toHaveBeenCalledWith(
-      "(hover: none), (pointer: coarse), (any-pointer: coarse)",
-    );
-    expect(
-      screen.getByRole("button", { name: "Go forward" }).tabIndex,
-    ).toBe(0);
-    expect(
-      screen.getByRole("button", { name: "Reload page" }).tabIndex,
-    ).toBe(0);
   });
 });

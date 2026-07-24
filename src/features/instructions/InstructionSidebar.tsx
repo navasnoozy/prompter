@@ -1,10 +1,10 @@
 import { Icon } from "../../shared/Icon";
+import { ProviderNavigationCapsule } from "../providers/ProviderNavigationCapsule";
+import { useProviderStore } from "../providers/store";
 import {
   DEFAULT_SHORTCUT_DISPLAY,
 } from "../quickCapture/model";
 import { useCaptureStore } from "../quickCapture/store";
-import { ProviderNavigationCapsule } from "../providers/ProviderNavigationCapsule";
-import { useProviderStore } from "../providers/store";
 import { useSettingsStore } from "../settings/store";
 import { useInstructionStore } from "./store";
 
