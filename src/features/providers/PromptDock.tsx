@@ -13,6 +13,9 @@ export function PromptDock() {
   const provider = useProviderStore((state) => state.provider);
   const setProvider = useProviderStore((state) => state.setProvider);
   const isPlacing = useProviderStore((state) => state.isPlacing);
+  const providerPageLoading = useProviderStore(
+    (state) => state.navigationByProvider[provider].isLoading,
+  );
   const sourceText = useCaptureStore((state) => state.sourceText);
   const instruction = useInstructionStore(selectedInstructionOf);
   const setSourceText = useCaptureStore((state) => state.setSourceText);
@@ -92,14 +95,20 @@ export function PromptDock() {
       <button
         className="dock-place-button"
         aria-keyshortcuts="Meta+Enter"
-        disabled={isPlacing || !sourceText.trim() || isTooLarge}
+        disabled={
+          isPlacing || providerPageLoading || !sourceText.trim() || isTooLarge
+        }
         onClick={() => void placeCurrentPrompt()}
         type="button"
       >
         <Icon name="sparkle" size={19} />
         <span>
           <strong>
-            {isPlacing ? "Placing…" : `Place in ${getProviderLabel(provider)}`}
+            {isPlacing
+              ? "Placing…"
+              : providerPageLoading
+                ? `Loading ${getProviderLabel(provider)}…`
+                : `Place in ${getProviderLabel(provider)}`}
           </strong>
           <small>⌘ ⏎ · You press Send</small>
         </span>

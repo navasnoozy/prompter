@@ -10,7 +10,10 @@ import {
   placePrompt,
   registerEnsureProvider,
 } from "./placement";
-import { useProviderStore } from "./store";
+import {
+  initializeProviderStore,
+  useProviderStore,
+} from "./store";
 
 vi.mock("./gateway", async (importOriginal) => {
   const original = await importOriginal<typeof import("./gateway")>();
@@ -63,8 +66,8 @@ describe("placement machine", () => {
       return Promise.resolve(() => {});
     });
     vi.mocked(providerGateway.placePrompt).mockResolvedValue(undefined);
+    initializeProviderStore("chatgpt");
     useProviderStore.setState({
-      provider: "chatgpt",
       isPlacing: false,
       placementBridgeReady: false,
     });
@@ -96,6 +99,28 @@ describe("placement machine", () => {
     expect(currentNotice()).toMatchObject({
       kind: "error",
       message: expect.stringContaining("too large"),
+    });
+    expect(providerGateway.placePrompt).not.toHaveBeenCalled();
+  });
+
+  it("waits for native provider navigation to finish", async () => {
+    useProviderStore.getState().updateNavigationState({
+      version: 1,
+      provider: "chatgpt",
+      generation: 1,
+      revision: 1,
+      available: true,
+      canGoBack: false,
+      canGoForward: false,
+      isLoading: true,
+    });
+
+    await placePrompt(COMPOSITION);
+
+    expect(isPlacing()).toBe(false);
+    expect(currentNotice()).toMatchObject({
+      kind: "info",
+      message: expect.stringContaining("finish loading"),
     });
     expect(providerGateway.placePrompt).not.toHaveBeenCalled();
   });

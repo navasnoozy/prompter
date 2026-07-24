@@ -14,6 +14,7 @@ export const ProviderErrorCodeSchema = z.enum([
   "webview_operation_failed",
   "invalid_bounds",
   "invalid_request",
+  "navigation_blocked",
   "wrong_host",
   "editor_not_found",
   "editor_update_failed",
@@ -42,6 +43,49 @@ export const ProviderErrorEventSchema = z.strictObject({
   code: ProviderErrorCodeSchema,
   message: z.string().trim().min(1),
 });
+
+export const ProviderNavigationStateSchema = z
+  .strictObject({
+    version: z.literal(1),
+    provider: ProviderSchema,
+    generation: z.int().min(0).max(4_294_967_295),
+    revision: z.int().min(0).max(4_294_967_295),
+    available: z.boolean(),
+    canGoBack: z.boolean(),
+    canGoForward: z.boolean(),
+    isLoading: z.boolean(),
+  })
+  .superRefine((navigation, context) => {
+    const isNeverCreated =
+      navigation.generation === 0 && navigation.revision === 0;
+    const hasVersionedGeneration =
+      navigation.generation > 0 && navigation.revision > 0;
+
+    if (!isNeverCreated && !hasVersionedGeneration) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Navigation generation and revision must both be zero or both be positive.",
+      });
+    }
+    if (navigation.available && !hasVersionedGeneration) {
+      context.addIssue({
+        code: "custom",
+        message: "Available navigation requires a versioned generation.",
+      });
+    }
+    if (
+      !navigation.available &&
+      (navigation.canGoBack ||
+        navigation.canGoForward ||
+        navigation.isLoading)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Unavailable navigation cannot expose active browser state.",
+      });
+    }
+  });
 
 export const QuickCaptureStatusSchema = z.strictObject({
   version: z.literal(1),

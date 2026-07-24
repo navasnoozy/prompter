@@ -7,6 +7,7 @@ import { PromptDock } from "./features/providers/PromptDock";
 import { ProviderBrowser } from "./features/providers/ProviderBrowser";
 import { useEmbeddedProvider } from "./features/providers/useEmbeddedProvider";
 import { usePromptPlacement } from "./features/providers/usePromptPlacement";
+import { useProviderNavigation } from "./features/providers/useProviderNavigation";
 import { useQuickCapture } from "./features/quickCapture/useQuickCapture";
 import { SettingsDialog } from "./features/settings/SettingsDialog";
 import { useSettingsStore } from "./features/settings/store";
@@ -19,6 +20,7 @@ function App() {
   useAppLifecycle();
   useQuickCapture();
   usePromptPlacement();
+  useProviderNavigation();
   useAppShortcuts();
   const { hostRef } = useEmbeddedProvider();
 

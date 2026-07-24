@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { ProviderCommandErrorSchema, ProviderErrorCodeSchema, ProviderSchema } from "../../shared/schemas";
+import {
+  ProviderCommandErrorSchema,
+  ProviderErrorCodeSchema,
+  ProviderNavigationStateSchema,
+  ProviderSchema,
+} from "../../shared/schemas";
 
 export const PROVIDERS = {
   chatgpt: {
@@ -30,6 +35,35 @@ export type ProviderBounds = {
   width: number;
   height: number;
 };
+
+export const PROVIDER_NAVIGATION_ACTIONS = [
+  "back",
+  "forward",
+  "reload",
+  "stop",
+] as const;
+
+export type ProviderNavigationAction =
+  (typeof PROVIDER_NAVIGATION_ACTIONS)[number];
+
+export type ProviderNavigationState = z.infer<
+  typeof ProviderNavigationStateSchema
+>;
+
+export function unavailableProviderNavigationState(
+  provider: Provider,
+): ProviderNavigationState {
+  return {
+    version: 1,
+    provider,
+    generation: 0,
+    revision: 0,
+    available: false,
+    canGoBack: false,
+    canGoForward: false,
+    isLoading: false,
+  };
+}
 
 export type PromptComposition = {
   beforeText: string;

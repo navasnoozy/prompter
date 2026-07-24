@@ -11,6 +11,8 @@
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "allow-get-provider-navigation-state",
+    "allow-control-provider-navigation",
     "allow-show-provider-webview",
     "allow-resize-provider-webview",
     "allow-set-provider-visibility",

@@ -36,28 +36,138 @@
   box-shadow: 0 14px 40px rgba(45, 34, 72, .055);
 }
 .provider-webview-frame {
+  --browser-navigation-rail-height: 48px;
+  /* A native child WebView always paints above DOM content. Keep the
+     controls and native host in separate grid rows; z-index cannot safely
+     overlay the controls on the provider page. */
   position: relative;
   width: 100%;
   min-height: 420px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows:
+    var(--browser-navigation-rail-height)
+    minmax(0, 1fr);
   flex: 1;
   overflow: hidden;
   border-radius: 17px;
   background: #fbfafc;
 }
-.provider-webview-host {
+.browser-navigation-rail {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+  z-index: 3;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: none;
+  border-bottom: 1px solid rgba(88, 78, 110, .09);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(250, 248, 253, .96));
+}
+.browser-navigation-capsule {
   position: absolute;
   top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  left: calc(50% - 24px);
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  padding: 1px;
+  pointer-events: auto;
+  border: 1px solid #ded8e8;
+  border-radius: 999px;
+  color: #56505f;
+  background: rgba(255, 255, 255, .97);
+  box-shadow:
+    0 7px 20px rgba(47, 37, 70, .12),
+    0 1px 2px rgba(47, 37, 70, .06);
+  transition:
+    width 150ms cubic-bezier(.2, .8, .2, 1),
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+.browser-navigation-capsule[data-expanded="true"] {
+  width: 138px;
+  border-color: #d2c8e5;
+  box-shadow:
+    0 9px 24px rgba(47, 37, 70, .14),
+    0 1px 2px rgba(47, 37, 70, .07);
+}
+.browser-navigation-button {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.browser-navigation-button:hover:not([aria-disabled="true"]) {
+  color: var(--purple-dark);
+  background: var(--purple-soft);
+}
+.browser-navigation-button[aria-disabled="true"] {
+  color: #b3aeb9;
+  cursor: default;
+}
+.browser-navigation-button:focus {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--purple);
+  outline-offset: 0;
+}
+.browser-navigation-extras {
+  min-width: 0;
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-5px);
+  transition:
+    opacity 110ms ease,
+    transform 150ms cubic-bezier(.2, .8, .2, 1),
+    visibility 0s linear 150ms;
+}
+.browser-navigation-capsule[data-expanded="true"] .browser-navigation-extras {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition-delay: 25ms, 0s, 0s;
+}
+.provider-navigation-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.provider-webview-host {
+  position: relative;
+  grid-column: 1;
+  grid-row: 2;
   z-index: 2;
+  min-width: 0;
+  min-height: 0;
 }
 .provider-loading-placeholder {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  position: relative;
+  grid-column: 1;
+  grid-row: 2;
+  z-index: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -177,3 +287,20 @@
 .status-bar > * + * { margin-left: 8px; }
 .status-bar .status-dot { width: 6px; height: 6px; }
 .status-spacer { flex: 1; }
+
+@media (hover: none), (pointer: coarse), (any-pointer: coarse) {
+  .browser-navigation-capsule { width: 138px; }
+  .browser-navigation-extras {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-navigation-capsule,
+  .browser-navigation-button,
+  .browser-navigation-extras {
+    transition: none;
+  }
+}

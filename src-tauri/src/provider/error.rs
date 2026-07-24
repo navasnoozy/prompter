@@ -12,6 +12,7 @@ pub(crate) enum ProviderErrorCode {
     WebviewOperationFailed,
     InvalidBounds,
     InvalidRequest,
+    NavigationBlocked,
     WrongHost,
     EditorNotFound,
     EditorUpdateFailed,

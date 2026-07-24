@@ -72,6 +72,15 @@ export async function placePrompt(
     );
     return;
   }
+  if (
+    useProviderStore.getState().navigationByProvider[provider].isLoading
+  ) {
+    publishNotice(
+      "info",
+      `Wait for ${getProviderLabel(provider)} to finish loading`,
+    );
+    return;
+  }
 
   clearPending();
   setPlacing(true);

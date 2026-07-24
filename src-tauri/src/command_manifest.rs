@@ -16,6 +16,8 @@ macro_rules! define_app_commands {
 }
 
 define_app_commands!(
+    "get_provider_navigation_state" => get_provider_navigation_state,
+    "control_provider_navigation" => control_provider_navigation,
     "show_provider_webview" => show_provider_webview,
     "resize_provider_webview" => resize_provider_webview,
     "set_provider_visibility" => set_provider_visibility,
