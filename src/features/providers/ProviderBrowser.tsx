@@ -1,7 +1,6 @@
 import type { RefObject } from "react";
 import { Icon } from "../../shared/Icon";
 import { getProviderLabel } from "./model";
-import { ProviderNavigationCapsule } from "./ProviderNavigationCapsule";
 import { useProviderStore } from "./store";
 
 type ProviderBrowserProps = {
@@ -11,7 +10,6 @@ type ProviderBrowserProps = {
 export function ProviderBrowser({ hostRef }: ProviderBrowserProps) {
   const provider = useProviderStore((state) => state.provider);
   const panelOpen = useProviderStore((state) => state.panelOpen);
-  const isPlacing = useProviderStore((state) => state.isPlacing);
   const navigation = useProviderStore(
     (state) => state.navigationByProvider[provider],
   );
@@ -20,26 +18,16 @@ export function ProviderBrowser({ hostRef }: ProviderBrowserProps) {
   return (
     <section aria-label={`${label} browser`} className="browser-card">
       <div className="provider-webview-frame">
-        <div className="browser-navigation-rail">
-          {panelOpen && navigation.available && (
-            <ProviderNavigationCapsule
-              isPlacing={isPlacing}
-              key={`${provider}-${navigation.generation}`}
-              navigation={navigation}
-              provider={provider}
-            />
-          )}
-          <span
-            aria-atomic="true"
-            aria-live="polite"
-            className="provider-navigation-status"
-            role="status"
-          >
-            {panelOpen && navigation.isLoading
-              ? `${label} page is loading.`
-              : ""}
-          </span>
-        </div>
+        <span
+          aria-atomic="true"
+          aria-live="polite"
+          className="provider-navigation-status"
+          role="status"
+        >
+          {panelOpen && navigation.isLoading
+            ? `${label} page is loading.`
+            : ""}
+        </span>
         <div
           aria-hidden={panelOpen}
           aria-live="polite"

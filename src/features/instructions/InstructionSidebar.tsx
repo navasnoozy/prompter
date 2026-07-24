@@ -3,6 +3,8 @@ import {
   DEFAULT_SHORTCUT_DISPLAY,
 } from "../quickCapture/model";
 import { useCaptureStore } from "../quickCapture/store";
+import { ProviderNavigationCapsule } from "../providers/ProviderNavigationCapsule";
+import { useProviderStore } from "../providers/store";
 import { useSettingsStore } from "../settings/store";
 import { useInstructionStore } from "./store";
 
@@ -13,6 +15,13 @@ export function InstructionSidebar() {
   const openEditor = useInstructionStore((state) => state.openEditor);
   const openSettings = useSettingsStore((state) => state.openSettings);
   const quickCaptureStatus = useCaptureStore((state) => state.status);
+
+  const provider = useProviderStore((state) => state.provider);
+  const panelOpen = useProviderStore((state) => state.panelOpen);
+  const isPlacing = useProviderStore((state) => state.isPlacing);
+  const navigation = useProviderStore(
+    (state) => state.navigationByProvider[provider],
+  );
 
   const shortcutDisplay =
     quickCaptureStatus?.shortcut.display ?? DEFAULT_SHORTCUT_DISPLAY;
@@ -26,11 +35,15 @@ export function InstructionSidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <span className="brand-mark">
-          <Icon name="sparkle" size={19} />
-        </span>
-        <span>Prompter</span>
+      <div className="sidebar-navigation">
+        {panelOpen && navigation.available && (
+          <ProviderNavigationCapsule
+            isPlacing={isPlacing}
+            key={`${provider}-${navigation.generation}`}
+            navigation={navigation}
+            provider={provider}
+          />
+        )}
       </div>
 
       <section className="sidebar-instructions" aria-label="Instructions">
