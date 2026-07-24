@@ -44,8 +44,7 @@
 .theme-dark .dock-text-meta,
 .theme-dark .status-bar { color: var(--text-secondary); }
 .theme-dark .preset-main strong,
-.theme-dark .settings-section strong,
-.theme-dark .dock-text-heading > span { color: var(--text-heading); }
+.theme-dark .settings-section strong { color: var(--text-heading); }
 .theme-dark .provider-button,
 .theme-dark .icon-button,
 .theme-dark .preset-row,
@@ -59,6 +58,14 @@
 .theme-dark .preset-modal input,
 .theme-dark .preset-modal textarea { color: var(--text-primary); border-color: var(--border-input); background: var(--surface-inset); }
 .theme-dark .dock-text-box textarea { color: var(--text-primary); }
+.theme-dark input:focus,
+.theme-dark textarea:focus { box-shadow: 0 0 0 3px rgba(140, 109, 253, .28); }
+.theme-dark .preset-modal input:focus,
+.theme-dark .preset-modal textarea:focus { border-color: var(--accent-selected-border); }
+.theme-dark .dock-text-box:focus-within {
+  border-color: var(--accent-selected-border);
+  box-shadow: 0 0 0 3px rgba(140, 109, 253, .2);
+}
 .theme-dark .dock-text-box textarea::placeholder,
 .theme-dark .preset-modal input::placeholder,
 .theme-dark .preset-modal textarea::placeholder { color: var(--text-placeholder); }

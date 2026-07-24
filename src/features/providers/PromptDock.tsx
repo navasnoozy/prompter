@@ -58,19 +58,6 @@ export function PromptDock() {
       </div>
 
       <div className="dock-text-box">
-        <div className="dock-text-heading">
-          <span>Your text</span>
-          <button
-            disabled={isCapturingClipboard}
-            onClick={() => void captureClipboard()}
-            type="button"
-          >
-            <Icon name="clipboard" size={14} />
-            <span>
-              {isCapturingClipboard ? "Capturing…" : "Capture clipboard"}
-            </span>
-          </button>
-        </div>
         <textarea
           aria-label="Text to rewrite"
           onChange={(event) => setSourceText(event.target.value)}
@@ -84,11 +71,23 @@ export function PromptDock() {
             {isTooLarge &&
               ` — ${promptBytes.toLocaleString()} / ${MAX_PROMPT_BYTES.toLocaleString()} prompt bytes`}
           </span>
-          {sourceText && (
-            <button onClick={() => setSourceText("")} type="button">
-              Clear
+          <span className="dock-text-actions">
+            <button
+              disabled={isCapturingClipboard}
+              onClick={() => void captureClipboard()}
+              type="button"
+            >
+              <Icon name="clipboard" size={14} />
+              <span>
+                {isCapturingClipboard ? "Capturing…" : "Capture clipboard"}
+              </span>
             </button>
-          )}
+            {sourceText && (
+              <button onClick={() => setSourceText("")} type="button">
+                Clear
+              </button>
+            )}
+          </span>
         </div>
       </div>
 

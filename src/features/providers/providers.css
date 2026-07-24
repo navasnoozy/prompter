@@ -150,22 +150,29 @@
 .dock-text-box {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto minmax(48px, 1fr) auto;
+  grid-template-rows: minmax(60px, 1fr) auto;
   padding: 8px 10px 6px;
   border: 1px solid #e3deea;
   border-radius: 12px;
   background: #fbfafd;
+  transition: border-color 130ms ease, box-shadow 130ms ease;
 }
-.dock-text-heading,
+.dock-text-box:focus-within {
+  border-color: #b3a0ef;
+  box-shadow: 0 0 0 3px rgba(110, 81, 217, .14);
+}
+.dock-text-box textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
 .dock-text-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.dock-text-heading > * + *,
 .dock-text-meta > * + * { margin-left: 10px; }
-.dock-text-heading > span { color: #4e4859; font-size: 12px; font-weight: 750; }
-.dock-text-heading button,
+.dock-text-actions { display: flex; align-items: center; }
+.dock-text-actions > * + * { margin-left: 10px; }
 .dock-text-meta button {
   display: inline-flex;
   align-items: center;
@@ -177,18 +184,18 @@
   font-size: 11px;
   font-weight: 700;
 }
-.dock-text-heading button > * + *,
 .dock-text-meta button > * + * { margin-left: 5px; }
 .dock-text-box textarea {
   width: 100%;
-  min-height: 48px;
+  /* 2 full lines at 24px + 12px vertical padding */
+  min-height: 60px;
   padding: 7px 0 5px;
   resize: none;
   border: 0;
   color: #37313e;
   background: transparent;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 16px;
+  line-height: 1.5;
 }
 .dock-text-box textarea::placeholder { color: #716b79; }
 .dock-text-meta { color: #6f6877; font-size: 11px; }

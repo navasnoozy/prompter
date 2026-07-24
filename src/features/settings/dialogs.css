@@ -16,8 +16,9 @@
 .modal-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
 .modal-header h2 { margin-bottom: 0; color: #302a39; font-family: "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif; font-size: 20px; letter-spacing: -.4px; }
 .preset-modal label { display: grid; gap: 7px; margin-top: 14px; color: #575160; font-size: 11px; font-weight: 700; }
-.preset-modal input, .preset-modal textarea { width: 100%; padding: 11px 12px; border: 1px solid #8f8996; border-radius: 10px; color: #37313e; background: #fbfafc; font-size: 12px; font-weight: 400; }
+.preset-modal input, .preset-modal textarea { width: 100%; padding: 11px 12px; border: 1px solid #8f8996; border-radius: 10px; color: #37313e; background: #fbfafc; font-size: 12px; font-weight: 400; transition: border-color 130ms ease, box-shadow 130ms ease; }
 .preset-modal textarea { min-height: 125px; resize: vertical; line-height: 1.55; }
+.preset-modal input:focus, .preset-modal textarea:focus { border-color: #b3a0ef; }
 .modal-actions { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; margin-top: 20px; padding-top: 17px; border-top: 1px solid #eeeaf2; }
 .modal-actions button { min-height: 38px; padding: 0 13px; border-radius: 9px; cursor: pointer; font-size: 11px; font-weight: 700; }
 .danger-button { display: flex; align-items: center; color: #a83b52; border: 1px solid #b96879; background: #fff6f8; }

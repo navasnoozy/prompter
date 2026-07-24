@@ -35,11 +35,18 @@ html, body, #root { min-height: 100%; margin: 0; }
 button, input, textarea { font: inherit; }
 button { color: inherit; }
 
-button:focus,
-input:focus,
-textarea:focus {
+button:focus {
   outline: 3px solid #6e51d9;
   outline-offset: 2px;
+}
+
+/* box-shadow (not outline) so the ring follows each field's own
+   border-radius — WebKit's outline renders as a hard rectangle
+   regardless of border-radius. */
+input:focus,
+textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(110, 81, 217, .22);
 }
 
 .app-shell {
