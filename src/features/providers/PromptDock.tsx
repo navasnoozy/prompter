@@ -1,46 +1,51 @@
 import { Icon } from "../../shared/Icon";
+import { registerPromptInput, useCaptureStore } from "../quickCapture/store";
 import {
-  getProviderLabel,
-  PROVIDERS,
-  PROVIDER_ORDER,
-  type PromptComposition,
-  type Provider,
-} from "./model";
+  selectedInstructionOf,
+  useInstructionStore,
+} from "../instructions/store";
+import { placeCurrentPrompt } from "./placement";
+import { getProviderLabel, PROVIDERS, PROVIDER_ORDER } from "./model";
+import { isPromptTooLarge, MAX_PROMPT_BYTES, promptByteLength } from "./prompt";
+import { useProviderStore } from "./store";
 
-// Mirrors the native byte cap conservatively; the backend stays authoritative.
-const MAX_PROMPT_CHARS = 1_000_000;
-
-type PromptDockProps = {
-  isWorking: boolean;
-  composition: PromptComposition;
-  provider: Provider;
-  onCaptureClipboard: () => void;
-  onPlacePrompt: (composition: PromptComposition) => void;
-  onProviderChange: (provider: Provider) => void;
-  onSourceTextChange: (text: string) => void;
-};
-
-export function PromptDock({
-  isWorking,
-  composition,
-  provider,
-  onCaptureClipboard,
-  onPlacePrompt,
-  onProviderChange,
-  onSourceTextChange,
-}: PromptDockProps) {
-  const sourceText = composition.text;
-  const isTooLarge = sourceText.length > MAX_PROMPT_CHARS;
+export function PromptDock() {
+  const provider = useProviderStore((state) => state.provider);
+  const setProvider = useProviderStore((state) => state.setProvider);
+  const isPlacing = useProviderStore((state) => state.isPlacing);
+  const providerPageLoading = useProviderStore(
+    (state) => state.navigationByProvider[provider].isLoading,
+  );
+  const sourceText = useCaptureStore((state) => state.sourceText);
+  const instruction = useInstructionStore(selectedInstructionOf);
+  const setSourceText = useCaptureStore((state) => state.setSourceText);
+  const captureClipboard = useCaptureStore((state) => state.captureClipboard);
+  const isCapturingClipboard = useCaptureStore(
+    (state) => state.isCapturingClipboard,
+  );
+  const composition = {
+    beforeText: instruction.beforeText,
+    text: sourceText,
+    afterText: instruction.afterText,
+  };
+  const promptBytes = promptByteLength(composition);
+  const isTooLarge = isPromptTooLarge(composition);
 
   return (
     <section className="bottom-dock" aria-label="Prepare prompt">
-      <div className="dock-provider-options" aria-label="AI provider">
-        {PROVIDER_ORDER.map((option) => (
+      <div
+        className="dock-provider-options"
+        aria-label="AI provider"
+        role="group"
+      >
+        {PROVIDER_ORDER.map((option, index) => (
           <button
             aria-pressed={provider === option}
             className={`provider-button ${provider === option ? "selected" : ""}`}
             key={option}
-            onClick={() => onProviderChange(option)}
+            onClick={() => setProvider(option)}
+            aria-keyshortcuts={`Meta+${index + 1}`}
+            title={`Switch with ⌘${index + 1}`}
             type="button"
           >
             <span className={`provider-logo ${option}`}>
@@ -55,23 +60,32 @@ export function PromptDock({
       <div className="dock-text-box">
         <div className="dock-text-heading">
           <span>Your text</span>
-          <button onClick={onCaptureClipboard} type="button">
-            <Icon name="clipboard" size={14} /> Capture clipboard
+          <button
+            disabled={isCapturingClipboard}
+            onClick={() => void captureClipboard()}
+            type="button"
+          >
+            <Icon name="clipboard" size={14} />
+            <span>
+              {isCapturingClipboard ? "Capturing…" : "Capture clipboard"}
+            </span>
           </button>
         </div>
         <textarea
           aria-label="Text to rewrite"
-          onChange={(event) => onSourceTextChange(event.target.value)}
+          onChange={(event) => setSourceText(event.target.value)}
           placeholder="Paste or type the text you want to rewrite…"
+          ref={registerPromptInput}
           value={sourceText}
         />
         <div className="dock-text-meta">
           <span>
             {sourceText.length.toLocaleString()} characters
-            {isTooLarge && " — too large to place"}
+            {isTooLarge &&
+              ` — ${promptBytes.toLocaleString()} / ${MAX_PROMPT_BYTES.toLocaleString()} prompt bytes`}
           </span>
           {sourceText && (
-            <button onClick={() => onSourceTextChange("")} type="button">
+            <button onClick={() => setSourceText("")} type="button">
               Clear
             </button>
           )}
@@ -80,18 +94,23 @@ export function PromptDock({
 
       <button
         className="dock-place-button"
-        disabled={isWorking || !sourceText.trim() || isTooLarge}
-        onClick={() => onPlacePrompt(composition)}
+        aria-keyshortcuts="Meta+Enter"
+        disabled={
+          isPlacing || providerPageLoading || !sourceText.trim() || isTooLarge
+        }
+        onClick={() => void placeCurrentPrompt()}
         type="button"
       >
         <Icon name="sparkle" size={19} />
         <span>
           <strong>
-            {isWorking
+            {isPlacing
               ? "Placing…"
-              : `Place in ${getProviderLabel(provider)}`}
+              : providerPageLoading
+                ? `Loading ${getProviderLabel(provider)}…`
+                : `Place in ${getProviderLabel(provider)}`}
           </strong>
-          <small>You press Send</small>
+          <small>⌘ ⏎ · You press Send</small>
         </span>
         <Icon name="chevron" size={16} />
       </button>

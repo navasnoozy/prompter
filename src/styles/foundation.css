@@ -6,25 +6,39 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   --ink: #20202a;
-  --muted: #777487;
+  --muted: #6f6a79;
   --border: #e8e4ef;
   --paper: #ffffff;
   --purple: #6e51d9;
   --purple-dark: #5638c0;
   --purple-soft: #f1edff;
+  --backdrop-bg: rgba(24, 20, 34, 0.48);
 }
 
 * { box-sizing: border-box; }
 
 html, body, #root { min-height: 100%; margin: 0; }
 
+.boot-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #625d6c;
+  background: #f7f6fa;
+  font-size: 14px;
+  font-weight: 650;
+}
+.boot-screen > * + * { margin-left: 10px; }
+.boot-mark { color: #6e51d9; font-size: 22px; }
+
 button, input, textarea { font: inherit; }
 button { color: inherit; }
 
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible {
-  outline: 3px solid rgba(110, 81, 217, 0.2);
+button:focus,
+input:focus,
+textarea:focus {
+  outline: 3px solid #6e51d9;
   outline-offset: 2px;
 }
 
@@ -48,6 +62,51 @@ textarea:focus-visible {
 
 h2, p { margin-top: 0; }
 .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #46b87b; box-shadow: 0 0 0 3px rgba(70,184,123,0.12); }
+.status-dot.info { background: #8b8798; box-shadow: 0 0 0 3px rgba(139,135,152,0.14); }
+.status-dot.progress { background: var(--purple); box-shadow: 0 0 0 3px rgba(110,81,217,0.16); animation: status-pulse 1.2s ease-in-out infinite; }
+.status-dot.error { background: #e5484d; box-shadow: 0 0 0 3px rgba(229,72,77,0.15); }
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f0edf6;
+    --muted: #9d97aa;
+    --border: #34303f;
+    --paper: #1b1922;
+    --purple: #8c6dfd;
+    --purple-dark: #7452e6;
+    --purple-soft: #282038;
+    --backdrop-bg: rgba(10, 8, 16, 0.65);
+  }
+
+  .boot-screen {
+    color: #d9d5e2;
+    background: #17151d;
+  }
+
+  .icon-button {
+    color: #d4cedb;
+    border-color: var(--border);
+    background: #24212c;
+  }
+  .icon-button:hover {
+    color: var(--purple);
+    border-color: #55447a;
+  }
+
+  .error-boundary button {
+    background: var(--purple);
+    color: #fff;
+    border-color: var(--border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.progress { animation: none; }
+}
 
 .error-boundary {
   min-height: 100vh;

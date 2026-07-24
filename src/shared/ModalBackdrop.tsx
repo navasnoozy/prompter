@@ -10,13 +10,17 @@ type ModalBackdropProps = {
 
 export function ModalBackdrop({ children, onClose }: ModalBackdropProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Capture during render, before React commits a child's autoFocus. Reading
+  // this in an effect would record the dialog input instead of its opener.
+  const previouslyFocusedRef = useRef<HTMLElement | null>(
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
 
   useEffect(() => {
     const container = containerRef.current;
-    const previouslyFocused =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+    const previouslyFocused = previouslyFocusedRef.current;
 
     const focusableElements = () =>
       Array.from(
@@ -59,7 +63,7 @@ export function ModalBackdrop({ children, onClose }: ModalBackdropProps) {
     window.addEventListener("keydown", handleKeydown);
     return () => {
       window.removeEventListener("keydown", handleKeydown);
-      previouslyFocused?.focus();
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
   }, [onClose]);
 

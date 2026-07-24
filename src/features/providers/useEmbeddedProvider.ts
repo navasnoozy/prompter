@@ -4,31 +4,37 @@ import {
   useRef,
   type RefObject,
 } from "react";
+import { publishNotice } from "../../shared/notices";
+import { useInstructionStore } from "../instructions/store";
+import { useLifecycleStore } from "../lifecycle/store";
+import { useSettingsStore } from "../settings/store";
 import { providerGateway } from "./gateway";
+import { type Provider, type ProviderBounds } from "./model";
 import {
-  getProviderLabel,
-  type Provider,
-  type ProviderBounds,
-} from "./model";
+  cancelCurrentPlacement,
+  placementErrorMessage,
+  registerEnsureProvider,
+} from "./placement";
+import { useProviderStore } from "./store";
 
 const MIN_PROVIDER_SIZE = 240;
 
-type UseEmbeddedProviderOptions = {
-  provider: Provider;
-  visible: boolean;
-  onNotice: (message: string) => void;
-};
-
 type UseEmbeddedProviderResult = {
   hostRef: RefObject<HTMLDivElement | null>;
-  ensureProvider: () => Promise<void>;
 };
 
-export function useEmbeddedProvider({
-  provider,
-  visible,
-  onNotice,
-}: UseEmbeddedProviderOptions): UseEmbeddedProviderResult {
+// Owns the native child-webview lifecycle: creation, visibility, and
+// resize tracking against the host element. The pane is visible only while
+// the window is presented and no dialog covers it.
+export function useEmbeddedProvider(): UseEmbeddedProviderResult {
+  const provider = useProviderStore((state) => state.provider);
+  const mainWindowVisible = useLifecycleStore(
+    (state) => state.status?.mainWindowVisible === true,
+  );
+  const editorOpen = useInstructionStore((state) => state.editorTarget !== null);
+  const settingsOpen = useSettingsStore((state) => state.showSettings);
+  const visible = mainWindowVisible && !editorOpen && !settingsOpen;
+
   const hostRef = useRef<HTMLDivElement | null>(null);
   const currentProviderRef = useRef(provider);
   const visibleRef = useRef(visible);
@@ -81,13 +87,21 @@ export function useEmbeddedProvider({
   }, [provider, readBounds]);
 
   useLayoutEffect(() => {
+    registerEnsureProvider(ensureProvider);
+    return () => registerEnsureProvider(null);
+  }, [ensureProvider]);
+
+  useLayoutEffect(() => {
     let disposed = false;
     let animationFrame = 0;
+    let resizeErrorReported = false;
 
     if (!visible) {
+      cancelCurrentPlacement();
+      useProviderStore.setState({ panelOpen: false });
       void providerGateway
         .setVisibility(provider, false)
-        .catch((error) => onNotice(String(error)));
+        .catch((error) => publishNotice("error", placementErrorMessage(error)));
       return () => {
         disposed = true;
       };
@@ -99,10 +113,10 @@ export function useEmbeddedProvider({
         const activeProvider = currentProviderRef.current;
         await providerGateway.setVisibility(activeProvider, visibleRef.current);
         if (!disposed && activeProvider === provider) {
-          onNotice(`${getProviderLabel(provider)} is ready inside Prompter`);
+          useProviderStore.setState({ panelOpen: visibleRef.current });
         }
       } catch (error) {
-        if (!disposed) onNotice(String(error));
+        if (!disposed) publishNotice("error", placementErrorMessage(error));
       }
     };
 
@@ -110,22 +124,32 @@ export function useEmbeddedProvider({
       window.cancelAnimationFrame(animationFrame);
       animationFrame = window.requestAnimationFrame(() => {
         const bounds = readBounds();
-        if (bounds) void providerGateway.resize(provider, bounds);
+        if (bounds) {
+          void providerGateway.resize(provider, bounds).catch((error) => {
+            if (!disposed && !resizeErrorReported) {
+              resizeErrorReported = true;
+              publishNotice("error", placementErrorMessage(error));
+            }
+          });
+        }
       });
     };
 
     void showProvider();
-    const observer = new ResizeObserver(resizeProvider);
-    if (hostRef.current) observer.observe(hostRef.current);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(resizeProvider);
+    if (hostRef.current) observer?.observe(hostRef.current);
     window.addEventListener("resize", resizeProvider);
 
     return () => {
       disposed = true;
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener("resize", resizeProvider);
       window.cancelAnimationFrame(animationFrame);
     };
-  }, [ensureProvider, onNotice, provider, readBounds, visible]);
+  }, [ensureProvider, provider, readBounds, visible]);
 
-  return { hostRef, ensureProvider };
+  return { hostRef };
 }

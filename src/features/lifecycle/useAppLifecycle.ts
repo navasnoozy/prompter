@@ -1,50 +1,17 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import {
-  appLifecycleGateway,
-  normalizeAppLifecycleError,
-} from "./gateway";
-import type { AppLifecycleStatus } from "./model";
+import { useEffect } from "react";
+import { appLifecycleGateway } from "./gateway";
+import { useLifecycleStore } from "./store";
 
-type UseAppLifecycleOptions = {
-  onNotice: (message: string) => void;
-};
-
-export function useAppLifecycle({ onNotice }: UseAppLifecycleOptions) {
-  const [status, setStatus] = useState<AppLifecycleStatus | null>(null);
-  const [isUpdatingLaunchAtLogin, setIsUpdatingLaunchAtLogin] =
-    useState(false);
-  const onNoticeRef = useRef(onNotice);
-  useLayoutEffect(() => {
-    onNoticeRef.current = onNotice;
-  });
-
-  const refreshStatus = useCallback(async () => {
-    try {
-      const nextStatus = await appLifecycleGateway.getStatus();
-      setStatus(nextStatus);
-      return nextStatus;
-    } catch {
-      return null;
-    }
-  }, []);
-
+// Binder hook: connects native window-visibility events to the lifecycle
+// store and refreshes the authoritative status on mount and window focus.
+export function useAppLifecycle(): void {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
     void appLifecycleGateway
       .onMainWindowVisibility((visible) => {
-        if (!disposed) {
-          setStatus((current) =>
-            current ? { ...current, mainWindowVisible: visible } : current,
-          );
-        }
+        if (!disposed) useLifecycleStore.getState().applyVisibility(visible);
       })
       .then((stopListening) => {
         if (disposed) {
@@ -52,46 +19,18 @@ export function useAppLifecycle({ onNotice }: UseAppLifecycleOptions) {
           return;
         }
         unlisten = stopListening;
-        void refreshStatus();
+        void useLifecycleStore.getState().refreshStatus();
       })
       .catch(() => {
-        if (!disposed) void refreshStatus();
+        if (!disposed) void useLifecycleStore.getState().refreshStatus();
       });
 
-    const handleFocus = () => void refreshStatus();
-    window.addEventListener("focus", handleFocus);
+    const refresh = () => void useLifecycleStore.getState().refreshStatus();
+    window.addEventListener("focus", refresh);
     return () => {
       disposed = true;
       unlisten?.();
-      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("focus", refresh);
     };
-  }, [refreshStatus]);
-
-  const setLaunchAtLogin = useCallback(
-    async (enabled: boolean) => {
-      setIsUpdatingLaunchAtLogin(true);
-      try {
-        const nextStatus = await appLifecycleGateway.setLaunchAtLogin(enabled);
-        setStatus(nextStatus);
-        onNoticeRef.current(
-          enabled
-            ? "Prompter will start quietly when you log in"
-            : "Launch at Login is off",
-        );
-      } catch (error) {
-        onNoticeRef.current(normalizeAppLifecycleError(error).message);
-        await refreshStatus();
-      } finally {
-        setIsUpdatingLaunchAtLogin(false);
-      }
-    },
-    [refreshStatus],
-  );
-
-  return {
-    status,
-    refreshStatus,
-    setLaunchAtLogin,
-    isUpdatingLaunchAtLogin,
-  };
+  }, []);
 }

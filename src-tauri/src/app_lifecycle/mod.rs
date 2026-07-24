@@ -1,3 +1,7 @@
+mod tray;
+
+pub(crate) use tray::install_tray;
+
 use std::{fmt, sync::Mutex, time::Instant};
 
 use log::{info, warn};
@@ -37,6 +41,7 @@ pub(crate) enum ActivationSource {
     DockReopen,
     SecondInstance,
     QuickCapture,
+    TrayOpen,
 }
 
 impl ActivationSource {
@@ -46,6 +51,7 @@ impl ActivationSource {
             Self::DockReopen => "dock_reopen",
             Self::SecondInstance => "second_instance",
             Self::QuickCapture => "quick_capture",
+            Self::TrayOpen => "tray_open",
         }
     }
 }

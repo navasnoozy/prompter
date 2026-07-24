@@ -6,7 +6,32 @@ const host = env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [["babel-plugin-react-compiler", {}]],
+      },
+    }),
+  ],
+
+  // Keep the bundle compatible with the WKWebView shipped on the oldest
+  // supported macOS release (Catalina / Safari 13 generation).
+  build: {
+    target: "safari13",
+  },
+
+  test: {
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.*",
+        "src/**/*.d.ts",
+        "src/vite-env.d.ts",
+      ],
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

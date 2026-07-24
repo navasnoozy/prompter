@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resize-provider-webview"
+description = "Enables the resize_provider_webview command without any pre-configured scope."
+commands.allow = ["resize_provider_webview"]
+
+[[permission]]
+identifier = "deny-resize-provider-webview"
+description = "Denies the resize_provider_webview command without any pre-configured scope."
+commands.deny = ["resize_provider_webview"]

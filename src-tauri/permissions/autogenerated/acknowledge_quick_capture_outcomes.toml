@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-acknowledge-quick-capture-outcomes"
+description = "Enables the acknowledge_quick_capture_outcomes command without any pre-configured scope."
+commands.allow = ["acknowledge_quick_capture_outcomes"]
+
+[[permission]]
+identifier = "deny-acknowledge-quick-capture-outcomes"
+description = "Denies the acknowledge_quick_capture_outcomes command without any pre-configured scope."
+commands.deny = ["acknowledge_quick_capture_outcomes"]

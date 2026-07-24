@@ -3,7 +3,7 @@ mod model;
 mod service;
 
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
@@ -28,7 +28,7 @@ use self::{
         CaptureWarningCode, ClipboardTextPayload, PermissionState, QuickCaptureStatus,
         ShortcutRegistrationState, CAPTURE_SHORTCUT, CONTRACT_VERSION,
     },
-    service::{capture_selection, validate_text},
+    service::{capture_selection, map_backend_failure, validate_text},
 };
 
 const READY_EVENT: &str = "prompter://quick-capture-ready";
@@ -138,12 +138,21 @@ impl QuickCaptureCoordinator {
         outcomes.push_back(outcome);
     }
 
-    fn take_outcomes(&self) -> Vec<CaptureOutcome> {
+    fn pending_outcomes(&self) -> Vec<CaptureOutcome> {
+        self.pending_outcomes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    fn acknowledge_outcomes(&self, request_ids: &HashSet<&str>) {
         let mut outcomes = self
             .pending_outcomes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        outcomes.drain(..).collect()
+        outcomes.retain(|outcome| !request_ids.contains(outcome.request_id()));
     }
 }
 
@@ -232,7 +241,13 @@ fn handle_shortcut<R: Runtime>(
     let app = app.clone();
     if let Err(spawn_error) = thread::Builder::new()
         .name("prompter-quick-capture".into())
-        .spawn(move || process_capture(app, lease))
+        .spawn(move || {
+            // AppKit/Foundation may return autoreleased objects on this raw
+            // worker thread, especially while materializing rich pasteboard
+            // data. Drain them after every capture instead of accumulating
+            // them for the lifetime of the process.
+            objc2::rc::autoreleasepool(|_| process_capture(app, lease));
+        })
     {
         error!(
             target: "prompter::quick_capture",
@@ -358,7 +373,8 @@ pub(crate) fn retry_quick_capture_registration<R: Runtime>(
 #[tauri::command]
 pub(crate) fn read_clipboard_text() -> Result<ClipboardTextPayload, CaptureCommandError> {
     let text = MacCaptureBackend::read_current_text()
-        .map_err(|_| CaptureCommandError::new(CaptureErrorCode::NoText))?;
+        .map_err(map_backend_failure)
+        .map_err(CaptureCommandError::new)?;
     let text = validate_text(text).map_err(CaptureCommandError::new)?;
     Ok(ClipboardTextPayload {
         version: CONTRACT_VERSION,
@@ -367,10 +383,32 @@ pub(crate) fn read_clipboard_text() -> Result<ClipboardTextPayload, CaptureComma
 }
 
 #[tauri::command]
-pub(crate) fn take_quick_capture_outcomes(
+pub(crate) fn list_quick_capture_outcomes(
     coordinator: State<'_, QuickCaptureCoordinator>,
 ) -> Vec<CaptureOutcome> {
-    coordinator.take_outcomes()
+    coordinator.pending_outcomes()
+}
+
+#[tauri::command]
+pub(crate) fn acknowledge_quick_capture_outcomes(
+    coordinator: State<'_, QuickCaptureCoordinator>,
+    request_ids: Vec<String>,
+) -> Result<(), CaptureCommandError> {
+    if request_ids.is_empty()
+        || request_ids.len() > MAX_PENDING_OUTCOMES
+        || request_ids.iter().any(|request_id| {
+            let sequence = request_id.strip_prefix("capture-");
+            request_id.len() > 64
+                || sequence.is_none_or(str::is_empty)
+                || !sequence.is_some_and(|value| value.bytes().all(|byte| byte.is_ascii_digit()))
+        })
+    {
+        return Err(CaptureCommandError::new(CaptureErrorCode::InvalidRequest));
+    }
+
+    let request_ids = request_ids.iter().map(String::as_str).collect();
+    coordinator.acknowledge_outcomes(&request_ids);
+    Ok(())
 }
 
 pub(crate) fn defer_exit_if_capturing<R: Runtime>(app: &AppHandle<R>) -> bool {
@@ -392,7 +430,8 @@ pub(crate) fn defer_exit_if_capturing<R: Runtime>(app: &AppHandle<R>) -> bool {
         .name("prompter-exit-waiter".into())
         .spawn(move || {
             let started = Instant::now();
-            while started.elapsed() < EXIT_WAIT_TIMEOUT {
+            let mut slow_capture_logged = false;
+            loop {
                 if !app_handle
                     .state::<QuickCaptureCoordinator>()
                     .capture_in_progress()
@@ -405,15 +444,16 @@ pub(crate) fn defer_exit_if_capturing<R: Runtime>(app: &AppHandle<R>) -> bool {
                     app_handle.exit(0);
                     return;
                 }
+                if !slow_capture_logged && started.elapsed() >= EXIT_WAIT_TIMEOUT {
+                    slow_capture_logged = true;
+                    warn!(
+                        target: "prompter::lifecycle",
+                        "event=quit outcome=still_waiting_for_clipboard_safety duration_ms={}",
+                        started.elapsed().as_millis()
+                    );
+                }
                 thread::sleep(EXIT_WAIT_POLL);
             }
-
-            warn!(
-                target: "prompter::lifecycle",
-                "event=quit outcome=forced_after_timeout timeout_ms={}",
-                EXIT_WAIT_TIMEOUT.as_millis()
-            );
-            app_handle.exit(0);
         }) {
         Ok(_) => {
             info!(
@@ -423,11 +463,16 @@ pub(crate) fn defer_exit_if_capturing<R: Runtime>(app: &AppHandle<R>) -> bool {
             true
         }
         Err(error) => {
+            coordinator
+                .exit_waiter_started
+                .store(false, Ordering::Release);
             error!(
                 target: "prompter::lifecycle",
-                "event=quit outcome=waiter_spawn_failed reason={error}"
+                "event=quit outcome=waiter_spawn_failed action=prevent_exit reason={error}"
             );
-            false
+            // Failing to create the helper thread must never terminate an
+            // active clipboard transaction. A later quit request can retry.
+            true
         }
     }
 }
@@ -491,7 +536,7 @@ mod tests {
             });
         }
 
-        let outcomes = coordinator.take_outcomes();
+        let outcomes = coordinator.pending_outcomes();
 
         assert_eq!(outcomes.len(), MAX_PENDING_OUTCOMES);
         assert_eq!(outcomes[0].request_id(), "capture-2");
@@ -499,6 +544,10 @@ mod tests {
             outcomes.last().map(CaptureOutcome::request_id),
             Some("capture-9")
         );
-        assert!(coordinator.take_outcomes().is_empty());
+        assert_eq!(coordinator.pending_outcomes(), outcomes);
+
+        let acknowledged = outcomes.iter().map(CaptureOutcome::request_id).collect();
+        coordinator.acknowledge_outcomes(&acknowledged);
+        assert!(coordinator.pending_outcomes().is_empty());
     }
 }

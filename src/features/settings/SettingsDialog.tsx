@@ -1,50 +1,48 @@
 import { Icon } from "../../shared/Icon";
 import { ModalBackdrop } from "../../shared/ModalBackdrop";
-import type { LaunchAtLoginState } from "../lifecycle/model";
-import type { QuickCaptureStatus } from "../quickCapture/model";
-import type { AppTheme } from "./useTheme";
+import { useLifecycleStore } from "../lifecycle/store";
+import { useCaptureStore } from "../quickCapture/store";
+import { useSettingsStore } from "./store";
 
 const TITLE_ID = "settings-title";
 
-type SettingsDialogProps = {
-  theme: AppTheme;
-  launchAtLogin: LaunchAtLoginState | null;
-  isUpdatingLaunchAtLogin: boolean;
-  isRequestingPermission: boolean;
-  isRetryingRegistration: boolean;
-  onClose: () => void;
-  onLaunchAtLoginChange: (enabled: boolean) => void;
-  onOpenSystemSettings: () => void;
-  onRefreshQuickCapture: () => void;
-  onRequestPermission: () => void;
-  onRetryRegistration: () => void;
-  onThemeChange: (theme: AppTheme) => void;
-  quickCaptureStatus: QuickCaptureStatus | null;
-};
+export function SettingsDialog() {
+  const theme = useSettingsStore((state) => state.theme);
+  const setTheme = useSettingsStore((state) => state.setTheme);
+  const closeSettings = useSettingsStore((state) => state.closeSettings);
 
-export function SettingsDialog({
-  theme,
-  launchAtLogin,
-  isUpdatingLaunchAtLogin,
-  isRequestingPermission,
-  isRetryingRegistration,
-  onClose,
-  onLaunchAtLoginChange,
-  onOpenSystemSettings,
-  onRefreshQuickCapture,
-  onRequestPermission,
-  onRetryRegistration,
-  onThemeChange,
-  quickCaptureStatus,
-}: SettingsDialogProps) {
-  const registrationReady =
-    quickCaptureStatus?.registration === "registered";
+  const launchAtLogin = useLifecycleStore(
+    (state) => state.status?.launchAtLogin ?? null,
+  );
+  const isUpdatingLaunchAtLogin = useLifecycleStore(
+    (state) => state.isUpdatingLaunchAtLogin,
+  );
+  const setLaunchAtLogin = useLifecycleStore((state) => state.setLaunchAtLogin);
+
+  const quickCaptureStatus = useCaptureStore((state) => state.status);
+  const isRequestingPermission = useCaptureStore(
+    (state) => state.isRequestingPermission,
+  );
+  const isRefreshingStatus = useCaptureStore(
+    (state) => state.isRefreshingStatus,
+  );
+  const isRetryingRegistration = useCaptureStore(
+    (state) => state.isRetryingRegistration,
+  );
+  const requestPermission = useCaptureStore((state) => state.requestPermission);
+  const retryRegistration = useCaptureStore((state) => state.retryRegistration);
+  const openSystemSettings = useCaptureStore(
+    (state) => state.openSystemSettings,
+  );
+  const refreshQuickCapture = useCaptureStore((state) => state.refreshStatus);
+
+  const registrationReady = quickCaptureStatus?.registration === "registered";
   const permissionReady = quickCaptureStatus?.permission === "granted";
   const launchAtLoginEnabled = launchAtLogin === "enabled";
   const launchAtLoginUnavailable = launchAtLogin === "unavailable";
 
   return (
-    <ModalBackdrop onClose={onClose}>
+    <ModalBackdrop onClose={closeSettings}>
       <section
         aria-labelledby={TITLE_ID}
         aria-modal="true"
@@ -59,7 +57,7 @@ export function SettingsDialog({
           <button
             aria-label="Close settings"
             className="icon-button"
-            onClick={onClose}
+            onClick={closeSettings}
             type="button"
           >
             <Icon name="close" />
@@ -73,18 +71,22 @@ export function SettingsDialog({
           </div>
           <div className="theme-options" role="group" aria-label="Appearance">
             <button
+              aria-pressed={theme === "light"}
               className={theme === "light" ? "selected" : ""}
-              onClick={() => onThemeChange("light")}
+              onClick={() => setTheme("light")}
               type="button"
             >
-              <Icon name="sun" size={16} /> Light
+              <Icon name="sun" size={16} />
+              <span>Light</span>
             </button>
             <button
+              aria-pressed={theme === "dark"}
               className={theme === "dark" ? "selected" : ""}
-              onClick={() => onThemeChange("dark")}
+              onClick={() => setTheme("dark")}
               type="button"
             >
-              <Icon name="moon" size={16} /> Dark
+              <Icon name="moon" size={16} />
+              <span>Dark</span>
             </button>
           </div>
         </div>
@@ -118,9 +120,7 @@ export function SettingsDialog({
                 launchAtLoginUnavailable ||
                 isUpdatingLaunchAtLogin
               }
-              onClick={() =>
-                onLaunchAtLoginChange(!launchAtLoginEnabled)
-              }
+              onClick={() => void setLaunchAtLogin(!launchAtLoginEnabled)}
               role="switch"
               type="button"
             >
@@ -165,7 +165,7 @@ export function SettingsDialog({
                 <button
                   className="settings-inline-button"
                   disabled={isRetryingRegistration}
-                  onClick={onRetryRegistration}
+                  onClick={() => void retryRegistration()}
                   type="button"
                 >
                   {isRetryingRegistration ? "Retrying…" : "Retry"}
@@ -181,7 +181,9 @@ export function SettingsDialog({
                 />
                 <strong>macOS permission</strong>
                 <p>
-                  {permissionReady
+                  {!quickCaptureStatus
+                    ? "Checking macOS Accessibility permission…"
+                    : permissionReady
                     ? "Allowed to press Copy for your selected text."
                     : "Required so Prompter can press Copy for you. Text is never sent automatically."}
                 </p>
@@ -190,20 +192,20 @@ export function SettingsDialog({
           </div>
 
           <div className="settings-action-row">
-            {!permissionReady && (
+            {quickCaptureStatus && !permissionReady && (
               <button
                 className="primary-button settings-action-button"
                 disabled={isRequestingPermission}
-                onClick={onRequestPermission}
+                onClick={() => void requestPermission()}
                 type="button"
               >
                 {isRequestingPermission ? "Requesting…" : "Enable Quick Capture"}
               </button>
             )}
-            {!permissionReady && (
+            {quickCaptureStatus && !permissionReady && (
               <button
                 className="secondary-button settings-action-button"
-                onClick={onOpenSystemSettings}
+                onClick={() => void openSystemSettings()}
                 type="button"
               >
                 Open System Settings
@@ -211,10 +213,11 @@ export function SettingsDialog({
             )}
             <button
               className="secondary-button settings-action-button"
-              onClick={onRefreshQuickCapture}
+              disabled={isRefreshingStatus}
+              onClick={() => void refreshQuickCapture(true)}
               type="button"
             >
-              Recheck
+              {isRefreshingStatus ? "Checking…" : "Recheck"}
             </button>
           </div>
         </div>

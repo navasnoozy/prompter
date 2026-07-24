@@ -1,29 +1,19 @@
 import { Icon } from "../../shared/Icon";
 import {
   DEFAULT_SHORTCUT_DISPLAY,
-  type QuickCaptureStatus,
 } from "../quickCapture/model";
-import type { InstructionPreset } from "./model";
+import { useCaptureStore } from "../quickCapture/store";
+import { useSettingsStore } from "../settings/store";
+import { useInstructionStore } from "./store";
 
-type InstructionSidebarProps = {
-  instructions: InstructionPreset[];
-  selectedId: string;
-  onCreate: () => void;
-  onEdit: (instruction: InstructionPreset) => void;
-  onOpenSettings: () => void;
-  onSelect: (id: string) => void;
-  quickCaptureStatus: QuickCaptureStatus | null;
-};
+export function InstructionSidebar() {
+  const instructions = useInstructionStore((state) => state.library.instructions);
+  const selectedId = useInstructionStore((state) => state.library.selectedId);
+  const select = useInstructionStore((state) => state.select);
+  const openEditor = useInstructionStore((state) => state.openEditor);
+  const openSettings = useSettingsStore((state) => state.openSettings);
+  const quickCaptureStatus = useCaptureStore((state) => state.status);
 
-export function InstructionSidebar({
-  instructions,
-  selectedId,
-  onCreate,
-  onEdit,
-  onOpenSettings,
-  onSelect,
-  quickCaptureStatus,
-}: InstructionSidebarProps) {
   const shortcutDisplay =
     quickCaptureStatus?.shortcut.display ?? DEFAULT_SHORTCUT_DISPLAY;
   const quickCaptureMessage = !quickCaptureStatus
@@ -48,7 +38,7 @@ export function InstructionSidebar({
           <span>Instructions</span>
           <button
             aria-label="Create instruction"
-            onClick={onCreate}
+            onClick={() => openEditor("new")}
             title="Create instruction"
             type="button"
           >
@@ -63,8 +53,9 @@ export function InstructionSidebar({
               key={instruction.id}
             >
               <button
+                aria-pressed={selectedId === instruction.id}
                 className="preset-main"
-                onClick={() => onSelect(instruction.id)}
+                onClick={() => select(instruction.id)}
                 type="button"
               >
                 <span className={`preset-icon ${instruction.color}`}>
@@ -77,7 +68,7 @@ export function InstructionSidebar({
               <button
                 aria-label={`Edit ${instruction.name}`}
                 className="edit-preset"
-                onClick={() => onEdit(instruction)}
+                onClick={() => openEditor(instruction)}
                 type="button"
               >
                 <Icon name="edit" size={14} />
@@ -90,7 +81,7 @@ export function InstructionSidebar({
       <button
         aria-label="Open Quick Capture settings"
         className="sidebar-tip quick-capture-tip"
-        onClick={onOpenSettings}
+        onClick={openSettings}
         type="button"
       >
         <span className="tip-kicker">Quick capture</span>
@@ -105,10 +96,11 @@ export function InstructionSidebar({
 
       <button
         className="nav-item settings-link"
-        onClick={onOpenSettings}
+        onClick={openSettings}
         type="button"
       >
-        <Icon name="settings" /> Settings
+        <Icon name="settings" />
+        <span>Settings</span>
       </button>
     </aside>
   );

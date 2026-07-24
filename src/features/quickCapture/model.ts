@@ -7,7 +7,9 @@ export type PermissionState = "granted" | "required";
 export type ShortcutRegistrationState = "registered" | "unavailable";
 export type CaptureErrorCode =
   | "permission_required"
+  | "invalid_request"
   | "clipboard_unavailable"
+  | "clipboard_changed"
   | "clipboard_too_large"
   | "shortcut_keys_held"
   | "copy_failed"
@@ -16,7 +18,6 @@ export type CaptureErrorCode =
   | "selection_too_large"
   | "internal";
 export type CaptureWarningCode =
-  | "clipboard_changed"
   | "clipboard_restore_failed"
   | "window_unavailable";
 
@@ -74,7 +75,9 @@ export type CaptureCommandError = {
 
 const ERROR_CODES = new Set<CaptureErrorCode>([
   "permission_required",
+  "invalid_request",
   "clipboard_unavailable",
+  "clipboard_changed",
   "clipboard_too_large",
   "shortcut_keys_held",
   "copy_failed",
@@ -84,7 +87,6 @@ const ERROR_CODES = new Set<CaptureErrorCode>([
   "internal",
 ]);
 const WARNING_CODES = new Set<CaptureWarningCode>([
-  "clipboard_changed",
   "clipboard_restore_failed",
   "window_unavailable",
 ]);

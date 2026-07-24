@@ -15,13 +15,13 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
   padding: 0 8px 19px;
   font-family: "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.4px;
 }
+.brand > * + * { margin-left: 10px; }
 
 .brand-mark {
   width: 34px;
@@ -47,7 +47,7 @@
   justify-content: space-between;
   padding: 0 5px 7px;
   color: #a9a2bb;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -83,8 +83,8 @@
   box-shadow: 0 0 0 2px rgba(135, 99, 224, .08);
 }
 .sidebar .preset-main { padding: 8px; }
-.sidebar .preset-main strong { color: #f0ecf7; font-size: 10px; }
-.sidebar .edit-preset { width: 31px; color: #777083; }
+.sidebar .preset-main strong { color: #f0ecf7; font-size: 12px; }
+.sidebar .edit-preset { width: 31px; color: #aaa2b2; }
 .sidebar .edit-preset:hover { color: #c7b1ff; }
 .sidebar .preset-icon { width: 27px; height: 27px; }
 
@@ -92,7 +92,6 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 11px;
   padding: 11px 12px;
   border: 0;
   border-radius: 10px;
@@ -104,6 +103,7 @@
   font-weight: 600;
   transition: 160ms ease;
 }
+.nav-item > * + * { margin-left: 11px; }
 
 .nav-item:hover { color: #fff; background: rgba(255,255,255,0.06); }
 
@@ -128,14 +128,16 @@
   border-color: rgba(179, 146, 255, .38);
   background: rgba(128, 92, 216, .12);
 }
-.quick-capture-tip:focus-visible {
-  outline-color: rgba(191, 166, 255, .5);
+.sidebar button:focus,
+.quick-capture-tip:focus {
+  outline-color: #d5c6ff;
 }
 
 .sidebar-tip strong { font-size: 13px; font-weight: 600; }
 .sidebar-tip small { color: #8f899f; font-size: 11px; line-height: 1.45; }
-.tip-kicker { color: #a98cf9; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.1px; }
-.shortcut-row { display: flex; gap: 5px; margin: 3px 0; }
+.tip-kicker { color: #b79cff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.1px; }
+.shortcut-row { display: flex; margin: 3px 0; }
+.shortcut-row > * + * { margin-left: 5px; }
 kbd {
   min-width: 25px;
   height: 25px;
@@ -167,13 +169,13 @@ kbd {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
   padding: 9px 10px;
   border: 0;
   background: transparent;
   cursor: pointer;
   text-align: left;
 }
+.preset-main > * + * { margin-left: 10px; }
 .preset-main > span:last-child { min-width: 0; display: grid; gap: 1px; }
 .preset-main strong { overflow: hidden; color: #46414f; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .preset-icon { width: 29px; height: 29px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; }
@@ -194,8 +196,16 @@ kbd {
 .instruction-editor-helper {
   margin: 14px 0 2px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
+}
+
+.instruction-editor-validation {
+  margin: 8px 0 0;
+  color: #a3293f;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.4;
 }
 
 .instruction-editor-modal .instruction-before-text {
