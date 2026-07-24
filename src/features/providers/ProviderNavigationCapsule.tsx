@@ -86,7 +86,7 @@ export function ProviderNavigationCapsule({
         title={backTitle}
         type="button"
       >
-        <Icon name="back" size={17} />
+        <Icon name="back" size={16} />
       </button>
       <button
         aria-disabled={forwardDisabled}
@@ -96,7 +96,7 @@ export function ProviderNavigationCapsule({
         title={forwardTitle}
         type="button"
       >
-        <Icon name="forward" size={17} />
+        <Icon name="forward" size={16} />
       </button>
       <button
         aria-disabled={controlsLocked}
@@ -106,7 +106,7 @@ export function ProviderNavigationCapsule({
         title={lockedTitle ?? reloadLabel}
         type="button"
       >
-        <Icon name={navigation.isLoading ? "stop" : "reload"} size={17} />
+        <Icon name={navigation.isLoading ? "stop" : "reload"} size={16} />
       </button>
     </nav>
   );
