@@ -26,6 +26,8 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 npm run tauri build -- --target universal-apple-darwin
 ```
 
+The self-signed `Prompter Dev` identity created by `npm run macos:cert` is for local development only and must never sign a release. No other Mac trusts it, it carries no Team Identifier, and it cannot be notarized. Confirm the signing identity before every release build.
+
 Configure Tauri with `APPLE_SIGNING_IDENTITY` and either App Store Connect credentials (`APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH`) or Apple ID notarization credentials (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`). Secrets belong in the CI secret store, never in the repository or logs.
 
 ## Artifact verification

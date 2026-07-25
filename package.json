@@ -18,6 +18,8 @@
     "check:versions": "node scripts/check-versions.mjs",
     "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check && cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings && cargo test --locked --manifest-path src-tauri/Cargo.toml",
     "preview": "vite preview",
+    "macos:cert": "bash scripts/create-macos-dev-cert.sh",
+    "macos:build": "bash scripts/build-macos-dev.sh",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -44,6 +44,19 @@ npm run tauri dev
 
 If you use another Node version manager, install the exact version in `.nvmrc` before running `npm ci`.
 
+## Build a local app bundle
+
+```bash
+npm run macos:cert   # once per machine
+npm run macos:build  # arguments are forwarded to `tauri build`
+```
+
+An ad-hoc signed bundle carries a designated requirement of `cdhash H"…"`, which is the compiled binary's own hash. Every rebuild therefore looks like a different application to macOS, which silently drops the Accessibility and keystroke grants Quick Capture depends on while System Settings still shows Prompter as enabled.
+
+`npm run macos:cert` creates a self-signed local identity named `Prompter Dev` and trusts it for code signing, which changes the requirement to `identifier "app.prompter.desktop" and certificate root H"…"`. Both terms survive a rebuild, so the grants persist. Grant Accessibility once to the first signed build; later rebuilds keep it.
+
+The identity is local only — no other Mac trusts it, and nothing about it is committed. It is passed through `APPLE_SIGNING_IDENTITY`, so CI and releases are unaffected and continue to use the Developer ID identity described in `RELEASING.md`. Setting `APPLE_SIGNING_IDENTITY` yourself overrides the default.
+
 ## Architecture
 
 The code is organized by responsibility. Frontend state lives in per-feature zustand stores; components subscribe with narrow selectors, hooks only bind native events to stores, and `App.tsx` is a composition root with no state props. The React Compiler handles memoization at build time.
