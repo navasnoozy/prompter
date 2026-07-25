@@ -56,19 +56,6 @@ pub(crate) struct NativeNavigationSnapshot {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct NativeNavigationObservation {
-    pub(crate) acknowledges_action: bool,
-    pub(crate) acknowledges_transition: bool,
-    pub(crate) snapshot: NativeNavigationSnapshot,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct NativeNavigationVerification {
-    pub(crate) observer_attached: bool,
-    pub(crate) snapshot: NativeNavigationSnapshot,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NativeNavigationAction {
     Back,
     Forward,
@@ -76,15 +63,9 @@ pub(crate) enum NativeNavigationAction {
     Stop,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct NativeNavigationOutcome {
-    pub(crate) snapshot: NativeNavigationSnapshot,
-    pub(crate) started_navigation: bool,
-}
-
 struct NavigationObserverIvars {
     webview: Retained<WKWebView>,
-    handler: Box<dyn Fn(NativeNavigationObservation)>,
+    handler: Box<dyn Fn(NativeNavigationSnapshot)>,
 }
 
 define_class!(
@@ -100,12 +81,12 @@ define_class!(
         #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
         fn observe_value_for_key_path(
             &self,
-            key_path: Option<&NSString>,
+            _key_path: Option<&NSString>,
             _object: Option<&AnyObject>,
             _change: Option<&NSDictionary<NSKeyValueChangeKey, AnyObject>>,
             _context: *mut c_void,
         ) {
-            self.publish_snapshot(key_path);
+            self.publish_snapshot();
         }
     }
 
@@ -115,7 +96,7 @@ define_class!(
 impl NavigationObserver {
     fn new(
         webview: Retained<WKWebView>,
-        handler: Box<dyn Fn(NativeNavigationObservation)>,
+        handler: Box<dyn Fn(NativeNavigationSnapshot)>,
         main_thread: MainThreadMarker,
     ) -> Retained<Self> {
         let observer =
@@ -170,26 +151,12 @@ impl NavigationObserver {
         }
 
         // Publish one explicit baseline after all registrations are active.
-        // Unlike a KVO change callback, this snapshot is not evidence that a
-        // navigation accepted just before observer setup has started.
-        observer.publish_snapshot(None);
+        observer.publish_snapshot();
         observer
     }
 
-    fn publish_snapshot(&self, key_path: Option<&NSString>) {
-        let snapshot = snapshot(&self.ivars().webview);
-        // A loading=true or URL KVO callback is a causally post-policy signal
-        // for an accepted navigation. Loading=false and history-capability
-        // callbacks can trail an older transition and therefore update state
-        // without settling the current transition lease.
-        let acknowledges_transition = key_path.is_some_and(|key| {
-            key == ns_string!("URL") || (key == ns_string!("loading") && snapshot.is_loading)
-        });
-        (self.ivars().handler)(NativeNavigationObservation {
-            acknowledges_action: acknowledges_transition,
-            acknowledges_transition,
-            snapshot,
-        });
+    fn publish_snapshot(&self) {
+        (self.ivars().handler)(snapshot(&self.ivars().webview));
     }
 }
 
@@ -283,7 +250,7 @@ async fn await_cancellable_main_thread_result<T>(
 pub(crate) async fn observe_provider_navigation(
     webview: &Webview,
     generation: u32,
-    handler: impl Fn(NativeNavigationObservation) + Send + 'static,
+    handler: impl Fn(NativeNavigationSnapshot) + Send + 'static,
 ) -> Result<(), String> {
     let label = webview.label().to_string();
     let callback_label = label.clone();
@@ -338,133 +305,31 @@ pub(crate) async fn observe_provider_navigation(
     await_main_thread_result(receiver, "starting embedded browser observation").await
 }
 
+/// Removes whatever observer is registered for a provider label. Callers hold
+/// the provider creation lock, so a replacement observer cannot be installed
+/// concurrently and there is no older registration to distinguish.
 pub(crate) async fn detach_provider_navigation_observer(
-    webview: &Webview,
-    generation: u32,
-) -> Result<bool, String> {
-    let label = webview.label().to_string();
-    let (sender, receiver) = oneshot::channel();
-    webview
-        .with_webview(move |platform_webview| {
-            let native_identity = platform_webview.inner().cast::<WKWebView>() as usize;
-            OBSERVERS.with(|observers| {
-                let mut observers = observers.borrow_mut();
-                let is_same = observers.get(&label).is_some_and(|registration| {
-                    registration.generation == generation
-                        && registration.native_identity == native_identity
-                });
-                if is_same {
-                    observers.remove(&label);
-                }
-                let _ = sender.send(Ok(is_same));
-            });
-        })
-        .map_err(|error| {
-            format!("Could not schedule embedded browser observer removal: {error}")
-        })?;
-
-    await_main_thread_result(receiver, "stopping embedded browser observation").await
-}
-
-async fn detach_provider_navigation_observer_by_label_scope(
     app: &AppHandle,
     label: &str,
-    generation: Option<u32>,
 ) -> Result<(), String> {
     let label = label.to_string();
     let (sender, receiver) = oneshot::channel();
     app.run_on_main_thread(move || {
         OBSERVERS.with(|observers| {
-            let mut observers = observers.borrow_mut();
-            let should_remove = observers.get(&label).is_some_and(|registration| {
-                generation
-                    .map(|expected| registration.generation == expected)
-                    .unwrap_or(true)
-            });
-            if should_remove {
-                observers.remove(&label);
-            }
+            observers.borrow_mut().remove(&label);
         });
         let _ = sender.send(Ok(()));
     })
     .map_err(|error| format!("Could not schedule embedded browser observer cleanup: {error}"))?;
 
-    await_main_thread_result(receiver, "cleaning up embedded browser observation").await
-}
-
-pub(crate) async fn detach_provider_navigation_observer_by_label(
-    app: &AppHandle,
-    label: &str,
-    generation: u32,
-) -> Result<(), String> {
-    detach_provider_navigation_observer_by_label_scope(app, label, Some(generation)).await
-}
-
-/// Removes the registration for a provider label when coordinator state is
-/// unavailable and therefore cannot supply a trustworthy generation. Callers
-/// must hold the provider creation lock so a replacement observer cannot be
-/// installed concurrently.
-pub(crate) async fn detach_provider_navigation_observer_by_label_any_generation(
-    app: &AppHandle,
-    label: &str,
-) -> Result<(), String> {
-    detach_provider_navigation_observer_by_label_scope(app, label, None).await
-}
-
-pub(crate) async fn read_provider_navigation_snapshot(
-    webview: &Webview,
-) -> Result<NativeNavigationSnapshot, String> {
-    let (sender, receiver) = oneshot::channel();
-    webview
-        .with_webview(move |platform_webview| {
-            // SAFETY: Tauri invokes with_webview on the main thread with a
-            // valid WKWebView pointer for the duration of this callback.
-            let webview = unsafe { &*platform_webview.inner().cast::<WKWebView>() };
-            let _ = sender.send(Ok(snapshot(webview)));
-        })
-        .map_err(|error| format!("Could not schedule an embedded browser state read: {error}"))?;
-
-    await_main_thread_result(receiver, "reading embedded browser state").await
-}
-
-/// Reads main-frame state together with proof that this generation's observer
-/// is still installed on this exact WKWebView. Absence of a KVO signal is only
-/// evidence about the main frame while the observer that would deliver it is
-/// attached.
-pub(crate) async fn verify_provider_navigation_observation(
-    webview: &Webview,
-    generation: u32,
-) -> Result<NativeNavigationVerification, String> {
-    let label = webview.label().to_string();
-    let (sender, receiver) = oneshot::channel();
-    webview
-        .with_webview(move |platform_webview| {
-            // SAFETY: Tauri invokes with_webview on the main thread with a
-            // valid WKWebView pointer for the duration of this callback.
-            let native_webview = unsafe { &*platform_webview.inner().cast::<WKWebView>() };
-            let native_identity = native_webview as *const WKWebView as usize;
-            let observer_attached = OBSERVERS.with(|observers| {
-                observers.borrow().get(&label).is_some_and(|registration| {
-                    registration.generation == generation
-                        && registration.native_identity == native_identity
-                })
-            });
-            let _ = sender.send(Ok(NativeNavigationVerification {
-                observer_attached,
-                snapshot: snapshot(native_webview),
-            }));
-        })
-        .map_err(|error| format!("Could not schedule an embedded browser state read: {error}"))?;
-
-    await_main_thread_result(receiver, "verifying embedded browser observation").await
+    await_main_thread_result(receiver, "stopping embedded browser observation").await
 }
 
 pub(crate) async fn control_provider_navigation(
     webview: &Webview,
     action: NativeNavigationAction,
     should_run: impl FnOnce() -> bool + Send + 'static,
-    on_complete: impl FnOnce(NativeNavigationOutcome) + Send + 'static,
-) -> Result<Option<NativeNavigationOutcome>, String> {
+) -> Result<Option<NativeNavigationSnapshot>, String> {
     let (sender, receiver) = oneshot::channel();
     let claim = Arc::new(AtomicU8::new(OPERATION_PENDING));
     let _pending_mutation_cancellation = PendingMutationCancellation {
@@ -492,31 +357,25 @@ pub(crate) async fn control_provider_navigation(
             // SAFETY: Tauri invokes with_webview on the main thread with a
             // valid WKWebView pointer. Every action uses WebKit's typed API.
             let webview = unsafe { &*platform_webview.inner().cast::<WKWebView>() };
-            let started_navigation = unsafe {
+            unsafe {
                 match action {
                     NativeNavigationAction::Back if webview.canGoBack() => {
-                        webview.goBack().is_some()
+                        webview.goBack();
                     }
                     NativeNavigationAction::Forward if webview.canGoForward() => {
-                        webview.goForward().is_some()
+                        webview.goForward();
                     }
                     NativeNavigationAction::Reload if !webview.isLoading() => {
-                        webview.reload().is_some()
+                        webview.reload();
                     }
                     NativeNavigationAction::Stop if webview.isLoading() => {
                         webview.stopLoading();
-                        false
                     }
-                    _ => false,
+                    _ => {}
                 }
-            };
+            }
 
-            let outcome = NativeNavigationOutcome {
-                snapshot: snapshot(webview),
-                started_navigation,
-            };
-            on_complete(outcome);
-            let _ = sender.send(Ok(Some(outcome)));
+            let _ = sender.send(Ok(Some(snapshot(webview))));
         })
         .map_err(|error| format!("Could not schedule embedded browser navigation: {error}"))?;
 
