@@ -682,6 +682,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_fresh_coordinator_reports_the_default_shortcut_as_not_yet_registered() {
+        // Startup order matters: the status is readable before the shortcut has
+        // been claimed, and it must not claim to be registered until it is.
+        let coordinator = QuickCaptureCoordinator::default();
+
+        assert_eq!(coordinator.descriptor().accelerator, "shift+super+KeyP");
+        assert_eq!(coordinator.descriptor().display, "⇧ ⌘ P");
+        assert_eq!(
+            coordinator.registration(),
+            ShortcutRegistrationState::Unavailable
+        );
+    }
+
+    #[test]
+    fn the_reported_descriptor_follows_the_shortcut_the_coordinator_holds() {
+        let coordinator = QuickCaptureCoordinator::default();
+        let chosen = shortcut::resolve("Control+Alt+KeyJ").expect("should resolve");
+
+        coordinator.set_shortcut(chosen.clone());
+
+        let descriptor = coordinator.descriptor();
+        assert_eq!(descriptor.accelerator, chosen.accelerator);
+        assert_eq!(descriptor.display, "⌃ ⌥ J");
+        assert_eq!(
+            status_for(
+                &coordinator,
+                CapturePermissions {
+                    post_event: true,
+                    accessibility: true,
+                },
+            )
+            .shortcut,
+            descriptor
+        );
+    }
+
+    #[test]
     fn capture_gate_coalesces_and_recovers() {
         let coordinator = QuickCaptureCoordinator::default();
         let lease = coordinator

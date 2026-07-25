@@ -15,8 +15,8 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 const validStatus = {
   version: 3 as const,
   shortcut: {
-    accelerator: "CommandOrControl+Shift+P",
-    display: "⌘ ⇧ P",
+    accelerator: "shift+super+KeyP",
+    display: "⇧ ⌘ P",
   },
   registration: "registered" as const,
   permission: "granted" as const,
@@ -33,7 +33,10 @@ describe("Quick Capture gateway", () => {
     vi.mocked(invoke).mockResolvedValueOnce(validStatus);
 
     await expect(quickCaptureGateway.getStatus()).resolves.toEqual(validStatus);
-    expect(invoke).toHaveBeenCalledWith(QUICK_CAPTURE_COMMANDS.getStatus);
+    expect(invoke).toHaveBeenCalledWith(
+      QUICK_CAPTURE_COMMANDS.getStatus,
+      undefined,
+    );
   });
 
   it("rejects invalid native responses instead of trusting them", async () => {
@@ -59,6 +62,28 @@ describe("Quick Capture gateway", () => {
       outcome,
     ]);
     expect(invoke).toHaveBeenCalledWith(QUICK_CAPTURE_COMMANDS.listOutcomes);
+  });
+
+  it("sends the accelerator to the backend and validates the status it returns", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(validStatus);
+
+    await expect(
+      quickCaptureGateway.setShortcut("control+alt+KeyJ"),
+    ).resolves.toEqual(validStatus);
+    expect(invoke).toHaveBeenCalledWith(QUICK_CAPTURE_COMMANDS.setShortcut, {
+      accelerator: "control+alt+KeyJ",
+    });
+  });
+
+  it("rejects a shortcut change that answers with an unparseable status", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      ...validStatus,
+      shortcut: { accelerator: "", display: "" },
+    });
+
+    await expect(
+      quickCaptureGateway.setShortcut("control+alt+KeyJ"),
+    ).rejects.toBeInstanceOf(QuickCaptureProtocolError);
   });
 
   it("acknowledges only explicitly processed request ids", async () => {

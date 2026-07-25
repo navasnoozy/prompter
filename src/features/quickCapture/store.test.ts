@@ -13,6 +13,8 @@ vi.mock("./gateway", async (importOriginal) => {
       getStatus: vi.fn(),
       requestPermission: vi.fn(),
       retryRegistration: vi.fn(),
+      setShortcut: vi.fn(),
+      resetShortcut: vi.fn(),
       openSystemSettings: vi.fn(),
       readClipboardText: vi.fn(),
       listPendingOutcomes: vi.fn(),
@@ -25,8 +27,8 @@ vi.mock("./gateway", async (importOriginal) => {
 const status = (permission: "granted" | "required"): QuickCaptureStatus => ({
   version: 3,
   shortcut: {
-    accelerator: "CommandOrControl+Shift+P",
-    display: "⌘ ⇧ P",
+    accelerator: "shift+super+KeyP",
+    display: "⇧ ⌘ P",
   },
   registration: "registered",
   permission,
@@ -40,6 +42,7 @@ describe("Quick Capture store", () => {
       sourceText: "",
       status: null,
       isRefreshingStatus: false,
+      isSavingShortcut: false,
     });
     useNoticeStore.setState({
       notice: { id: 0, kind: "info", message: "Ready" },
@@ -72,6 +75,67 @@ describe("Quick Capture store", () => {
       status: status("granted"),
       isRefreshingStatus: false,
     });
+  });
+
+  it("adopts the shortcut the backend confirms, not the one that was requested", async () => {
+    const saved: QuickCaptureStatus = {
+      ...status("granted"),
+      shortcut: { accelerator: "alt+control+KeyJ", display: "⌃ ⌥ J" },
+    };
+    vi.mocked(quickCaptureGateway.setShortcut).mockResolvedValueOnce(saved);
+
+    await expect(
+      useCaptureStore.getState().setShortcut("control+alt+KeyJ"),
+    ).resolves.toBe(true);
+
+    expect(useCaptureStore.getState().status).toEqual(saved);
+    expect(useNoticeStore.getState().notice).toMatchObject({
+      kind: "success",
+      message: "Shortcut set to ⌃ ⌥ J",
+    });
+  });
+
+  it("keeps the previous shortcut visible when the backend rejects a change", async () => {
+    // The backend rolls its own registration back, so the UI must not show a
+    // combination that is not actually bound.
+    const current = status("granted");
+    useCaptureStore.setState({ status: current });
+    vi.mocked(quickCaptureGateway.setShortcut).mockRejectedValueOnce({
+      version: 3,
+      code: "shortcut_unavailable",
+      message: "macOS or another app is already using that shortcut.",
+    });
+
+    await expect(
+      useCaptureStore.getState().setShortcut("super+Space"),
+    ).resolves.toBe(false);
+
+    expect(useCaptureStore.getState()).toMatchObject({
+      status: current,
+      isSavingShortcut: false,
+    });
+    expect(useNoticeStore.getState().notice).toMatchObject({
+      kind: "error",
+      message: "macOS or another app is already using that shortcut.",
+    });
+  });
+
+  it("ignores a second shortcut change while one is still in flight", async () => {
+    let resolveFirst: (value: QuickCaptureStatus) => void = () => {};
+    vi.mocked(quickCaptureGateway.setShortcut).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+    );
+
+    const first = useCaptureStore.getState().setShortcut("super+KeyJ");
+    await expect(
+      useCaptureStore.getState().setShortcut("super+KeyK"),
+    ).resolves.toBe(false);
+    resolveFirst(status("granted"));
+    await first;
+
+    expect(quickCaptureGateway.setShortcut).toHaveBeenCalledTimes(1);
   });
 
   it("does not overwrite newer typed text when clipboard capture finishes", async () => {
