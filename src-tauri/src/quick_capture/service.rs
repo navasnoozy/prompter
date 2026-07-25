@@ -22,6 +22,18 @@ pub(crate) enum BackendFailure {
     CopyTimedOut,
     NoText,
     RestoreFailed,
+    AccessibilityDenied,
+}
+
+/// The two macOS grants Quick Capture needs. They live in the same System
+/// Settings pane but are recorded independently, so they are reported and
+/// requested independently too.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CapturePermissions {
+    /// Allows synthesizing the ⌘C keystroke.
+    pub(crate) post_event: bool,
+    /// Allows reading the focused control, which every capture guards against.
+    pub(crate) accessibility: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,7 +45,7 @@ pub(crate) enum RestoreDisposition {
 pub(crate) trait CaptureBackend {
     type Snapshot: ClipboardSnapshot;
 
-    fn has_event_posting_access(&self) -> bool;
+    fn permissions(&self) -> CapturePermissions;
     fn wait_for_shortcut_release(&self, timeout: Duration) -> Result<(), BackendFailure>;
     fn read_selected_text(&self) -> Result<Option<String>, BackendFailure>;
     fn snapshot_clipboard(&self) -> Result<Self::Snapshot, BackendFailure>;
@@ -65,8 +77,12 @@ pub(crate) struct CapturedSelection {
 pub(crate) fn capture_selection<B: CaptureBackend>(
     backend: &B,
 ) -> Result<CapturedSelection, CaptureErrorCode> {
-    if !backend.has_event_posting_access() {
+    let permissions = backend.permissions();
+    if !permissions.post_event {
         return Err(CaptureErrorCode::PermissionRequired);
+    }
+    if !permissions.accessibility {
+        return Err(CaptureErrorCode::AccessibilityPermissionRequired);
     }
 
     backend
@@ -112,6 +128,9 @@ pub(crate) fn capture_selection<B: CaptureBackend>(
             text,
             warning: Some(CaptureWarningCode::ClipboardRestoreFailed),
         }),
+        // A permission failure explains both halves at once and is the only
+        // one the user can act on, so it outranks the generic clipboard report.
+        (Err(error @ CaptureErrorCode::AccessibilityPermissionRequired), Err(_)) => Err(error),
         (Err(_), Err(_)) => Err(CaptureErrorCode::ClipboardUnavailable),
         (Err(_), Ok(RestoreDisposition::SkippedExternalChange)) => {
             Err(CaptureErrorCode::ClipboardChanged)
@@ -142,6 +161,7 @@ pub(crate) fn map_backend_failure(failure: BackendFailure) -> CaptureErrorCode {
         BackendFailure::CopyFailed => CaptureErrorCode::CopyFailed,
         BackendFailure::CopyTimedOut => CaptureErrorCode::CopyTimedOut,
         BackendFailure::NoText => CaptureErrorCode::NoText,
+        BackendFailure::AccessibilityDenied => CaptureErrorCode::AccessibilityPermissionRequired,
     }
 }
 
@@ -161,7 +181,7 @@ mod tests {
     }
 
     struct FakeBackend {
-        access: bool,
+        permissions: CapturePermissions,
         release_result: Result<(), BackendFailure>,
         snapshot_result: Result<FakeSnapshot, BackendFailure>,
         copy_result: Result<(), BackendFailure>,
@@ -177,7 +197,10 @@ mod tests {
     impl FakeBackend {
         fn success(text: &str) -> Self {
             Self {
-                access: true,
+                permissions: CapturePermissions {
+                    post_event: true,
+                    accessibility: true,
+                },
                 release_result: Ok(()),
                 snapshot_result: Ok(FakeSnapshot(10)),
                 copy_result: Ok(()),
@@ -199,9 +222,9 @@ mod tests {
     impl CaptureBackend for FakeBackend {
         type Snapshot = FakeSnapshot;
 
-        fn has_event_posting_access(&self) -> bool {
+        fn permissions(&self) -> CapturePermissions {
             self.calls.borrow_mut().push_back("permission");
-            self.access
+            self.permissions
         }
 
         fn wait_for_shortcut_release(&self, _timeout: Duration) -> Result<(), BackendFailure> {
@@ -266,13 +289,36 @@ mod tests {
     #[test]
     fn denied_permission_never_touches_the_clipboard() {
         let mut backend = FakeBackend::success("text");
-        backend.access = false;
+        backend.permissions.post_event = false;
 
         assert_eq!(
             capture_selection(&backend),
             Err(CaptureErrorCode::PermissionRequired)
         );
         assert_eq!(backend.calls(), vec!["permission"]);
+    }
+
+    #[test]
+    fn missing_accessibility_trust_is_reported_as_its_own_permission() {
+        let mut backend = FakeBackend::success("text");
+        backend.permissions.accessibility = false;
+
+        assert_eq!(
+            capture_selection(&backend),
+            Err(CaptureErrorCode::AccessibilityPermissionRequired)
+        );
+        assert_eq!(backend.calls(), vec!["permission"]);
+    }
+
+    #[test]
+    fn accessibility_denial_mid_capture_is_never_reported_as_a_clipboard_fault() {
+        let mut backend = FakeBackend::success("text");
+        backend.snapshot_result = Err(BackendFailure::AccessibilityDenied);
+
+        assert_eq!(
+            capture_selection(&backend),
+            Err(CaptureErrorCode::AccessibilityPermissionRequired)
+        );
     }
 
     #[test]

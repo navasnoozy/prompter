@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-pub(crate) const CONTRACT_VERSION: u8 = 1;
+pub(crate) const CONTRACT_VERSION: u8 = 2;
 pub(crate) const CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+P";
 pub(crate) const CAPTURE_SHORTCUT_DISPLAY: &str = "⌘ ⇧ P";
 
@@ -22,6 +22,7 @@ pub(crate) enum ShortcutRegistrationState {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CaptureErrorCode {
     PermissionRequired,
+    AccessibilityPermissionRequired,
     InvalidRequest,
     ClipboardUnavailable,
     ClipboardChanged,
@@ -39,6 +40,9 @@ impl CaptureErrorCode {
         match self {
             Self::PermissionRequired => {
                 "Quick Capture needs macOS permission before it can copy selected text."
+            }
+            Self::AccessibilityPermissionRequired => {
+                "Quick Capture needs Accessibility permission to read your selection. Enable Prompter under Privacy & Security → Accessibility, then relaunch Prompter."
             }
             Self::InvalidRequest => "The Quick Capture request was invalid.",
             Self::ClipboardUnavailable => {
@@ -99,13 +103,17 @@ pub(crate) struct QuickCaptureStatus {
     pub(crate) version: u8,
     pub(crate) shortcut: ShortcutDescriptor,
     pub(crate) registration: ShortcutRegistrationState,
+    /// Permission to synthesize the ⌘C keystroke.
     pub(crate) permission: PermissionState,
+    /// Accessibility trust, granted separately from `permission`.
+    pub(crate) accessibility: PermissionState,
 }
 
 impl QuickCaptureStatus {
     pub(crate) fn new(
         registration: ShortcutRegistrationState,
         permission: PermissionState,
+        accessibility: PermissionState,
     ) -> Self {
         Self {
             version: CONTRACT_VERSION,
@@ -115,6 +123,7 @@ impl QuickCaptureStatus {
             },
             registration,
             permission,
+            accessibility,
         }
     }
 }
@@ -155,6 +164,7 @@ pub(crate) enum CaptureOutcome {
         code: CaptureErrorCode,
         message: String,
         permission: PermissionState,
+        accessibility: PermissionState,
         duration_ms: u64,
     },
 }
@@ -223,10 +233,11 @@ mod tests {
     }
 
     #[test]
-    fn status_contract_reports_the_backend_owned_shortcut() {
+    fn status_contract_reports_both_macos_grants_separately() {
         let status = QuickCaptureStatus::new(
             ShortcutRegistrationState::Registered,
             PermissionState::Granted,
+            PermissionState::Required,
         );
         let value = serde_json::to_value(status).expect("status should serialize");
 
@@ -235,5 +246,6 @@ mod tests {
         assert_eq!(value["shortcut"]["display"], CAPTURE_SHORTCUT_DISPLAY);
         assert_eq!(value["registration"], "registered");
         assert_eq!(value["permission"], "granted");
+        assert_eq!(value["accessibility"], "required");
     }
 }

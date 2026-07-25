@@ -23,13 +23,14 @@ vi.mock("./gateway", async (importOriginal) => {
 });
 
 const status = (permission: "granted" | "required"): QuickCaptureStatus => ({
-  version: 1,
+  version: 2,
   shortcut: {
     accelerator: "CommandOrControl+Shift+P",
     display: "⌘ ⇧ P",
   },
   registration: "registered",
   permission,
+  accessibility: "granted",
 });
 
 describe("Quick Capture store", () => {
@@ -74,7 +75,7 @@ describe("Quick Capture store", () => {
   });
 
   it("does not overwrite newer typed text when clipboard capture finishes", async () => {
-    let resolveClipboard: (value: { version: 1; text: string }) => void = () => {};
+    let resolveClipboard: (value: { version: 2; text: string }) => void = () => {};
     vi.mocked(quickCaptureGateway.readClipboardText).mockReturnValueOnce(
       new Promise((resolve) => {
         resolveClipboard = resolve;
@@ -83,7 +84,7 @@ describe("Quick Capture store", () => {
 
     const capture = useCaptureStore.getState().captureClipboard();
     useCaptureStore.getState().setSourceText("Text entered while capturing");
-    resolveClipboard({ version: 1, text: "Older clipboard text" });
+    resolveClipboard({ version: 2, text: "Older clipboard text" });
     await capture;
 
     expect(useCaptureStore.getState()).toMatchObject({
@@ -96,7 +97,7 @@ describe("Quick Capture store", () => {
   it("retries failed acknowledgements without applying an outcome twice", async () => {
     const outcome = {
       kind: "success" as const,
-      version: 1 as const,
+      version: 2 as const,
       requestId: "capture-81",
       text: "Recovered selection",
       warnings: [],

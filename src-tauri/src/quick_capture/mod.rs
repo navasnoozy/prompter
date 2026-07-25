@@ -28,7 +28,7 @@ use self::{
         CaptureWarningCode, ClipboardTextPayload, PermissionState, QuickCaptureStatus,
         ShortcutRegistrationState, CAPTURE_SHORTCUT, CONTRACT_VERSION,
     },
-    service::{capture_selection, map_backend_failure, validate_text},
+    service::{capture_selection, map_backend_failure, validate_text, CapturePermissions},
 };
 
 const READY_EVENT: &str = "prompter://quick-capture-ready";
@@ -178,8 +178,10 @@ pub(crate) fn initialize<R: Runtime>(app: &AppHandle<R>) {
     let status = register_shortcut(app);
     info!(
         target: "prompter::quick_capture",
-        "event=shortcut_registration state={:?}",
-        status.registration
+        "event=shortcut_registration state={:?} permission={:?} accessibility={:?}",
+        status.registration,
+        status.permission,
+        status.accessibility
     );
 }
 
@@ -297,17 +299,20 @@ fn process_capture<R: Runtime>(app: AppHandle<R>, _lease: CaptureLease) {
             }
         }
         Err(code) => {
-            let permission = permission_state();
+            let permissions = MacCaptureBackend::permission_state();
             warn!(
                 target: "prompter::quick_capture",
-                "event=capture_completed request_id={request_id} outcome=failure code={code:?} duration_ms={duration_ms}"
+                "event=capture_completed request_id={request_id} outcome=failure code={code:?} duration_ms={duration_ms} post_event={} accessibility={}",
+                permissions.post_event,
+                permissions.accessibility
             );
             CaptureOutcome::Failure {
                 version: CONTRACT_VERSION,
                 request_id: request_id.clone(),
                 code,
                 message: code.user_message().to_string(),
-                permission,
+                permission: permission_state(permissions.post_event),
+                accessibility: permission_state(permissions.accessibility),
                 duration_ms,
             }
         }
@@ -326,16 +331,27 @@ fn process_capture<R: Runtime>(app: AppHandle<R>, _lease: CaptureLease) {
     }
 }
 
-fn permission_state() -> PermissionState {
-    if MacCaptureBackend::permission_state() {
+fn permission_state(granted: bool) -> PermissionState {
+    if granted {
         PermissionState::Granted
     } else {
         PermissionState::Required
     }
 }
 
+fn status_for(
+    coordinator: &QuickCaptureCoordinator,
+    permissions: CapturePermissions,
+) -> QuickCaptureStatus {
+    QuickCaptureStatus::new(
+        coordinator.registration(),
+        permission_state(permissions.post_event),
+        permission_state(permissions.accessibility),
+    )
+}
+
 fn current_status(coordinator: &QuickCaptureCoordinator) -> QuickCaptureStatus {
-    QuickCaptureStatus::new(coordinator.registration(), permission_state())
+    status_for(coordinator, MacCaptureBackend::permission_state())
 }
 
 #[tauri::command]
@@ -349,12 +365,14 @@ pub(crate) fn get_quick_capture_status(
 pub(crate) fn request_quick_capture_permission(
     coordinator: State<'_, QuickCaptureCoordinator>,
 ) -> QuickCaptureStatus {
-    let granted = MacCaptureBackend::request_permission();
+    let permissions = MacCaptureBackend::request_permission();
     info!(
         target: "prompter::quick_capture",
-        "event=permission_request granted={granted}"
+        "event=permission_request post_event={} accessibility={}",
+        permissions.post_event,
+        permissions.accessibility
     );
-    current_status(&coordinator)
+    status_for(&coordinator, permissions)
 }
 
 #[tauri::command]
@@ -532,6 +550,7 @@ mod tests {
                 code: CaptureErrorCode::Internal,
                 message: "failure".into(),
                 permission: PermissionState::Granted,
+                accessibility: PermissionState::Granted,
                 duration_ms: 0,
             });
         }

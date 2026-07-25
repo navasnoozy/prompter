@@ -1,12 +1,13 @@
 import { isNonEmptyString, isRecord } from "../../shared/contracts";
 
-export const QUICK_CAPTURE_CONTRACT_VERSION = 1;
+export const QUICK_CAPTURE_CONTRACT_VERSION = 2;
 export const DEFAULT_SHORTCUT_DISPLAY = "⌘ ⇧ P";
 
 export type PermissionState = "granted" | "required";
 export type ShortcutRegistrationState = "registered" | "unavailable";
 export type CaptureErrorCode =
   | "permission_required"
+  | "accessibility_permission_required"
   | "invalid_request"
   | "clipboard_unavailable"
   | "clipboard_changed"
@@ -22,13 +23,16 @@ export type CaptureWarningCode =
   | "window_unavailable";
 
 export type QuickCaptureStatus = {
-  version: 1;
+  version: 2;
   shortcut: {
     accelerator: string;
     display: string;
   };
   registration: ShortcutRegistrationState;
+  /** Permission to synthesize the ⌘C keystroke. */
   permission: PermissionState;
+  /** Accessibility trust, granted separately from `permission`. */
+  accessibility: PermissionState;
 };
 
 export type CaptureWarning = {
@@ -38,7 +42,7 @@ export type CaptureWarning = {
 
 export type CaptureSuccess = {
   kind: "success";
-  version: 1;
+  version: 2;
   requestId: string;
   text: string;
   warnings: CaptureWarning[];
@@ -47,34 +51,36 @@ export type CaptureSuccess = {
 
 export type CaptureFailure = {
   kind: "failure";
-  version: 1;
+  version: 2;
   requestId: string;
   code: CaptureErrorCode;
   message: string;
   permission: PermissionState;
+  accessibility: PermissionState;
   durationMs: number;
 };
 
 export type CaptureOutcome = CaptureSuccess | CaptureFailure;
 
 export type CaptureReadyEvent = {
-  version: 1;
+  version: 2;
   requestId: string;
 };
 
 export type ClipboardTextPayload = {
-  version: 1;
+  version: 2;
   text: string;
 };
 
 export type CaptureCommandError = {
-  version: 1;
+  version: 2;
   code: CaptureErrorCode;
   message: string;
 };
 
 const ERROR_CODES = new Set<CaptureErrorCode>([
   "permission_required",
+  "accessibility_permission_required",
   "invalid_request",
   "clipboard_unavailable",
   "clipboard_changed",
@@ -91,7 +97,7 @@ const WARNING_CODES = new Set<CaptureWarningCode>([
   "window_unavailable",
 ]);
 
-function isContractVersion(value: unknown): value is 1 {
+function isContractVersion(value: unknown): value is 2 {
   return value === QUICK_CAPTURE_CONTRACT_VERSION;
 }
 
@@ -133,7 +139,8 @@ export function parseQuickCaptureStatus(
     !isNonEmptyString(value.shortcut.accelerator) ||
     !isNonEmptyString(value.shortcut.display) ||
     !isRegistrationState(value.registration) ||
-    !isPermissionState(value.permission)
+    !isPermissionState(value.permission) ||
+    !isPermissionState(value.accessibility)
   ) {
     return null;
   }
@@ -146,6 +153,7 @@ export function parseQuickCaptureStatus(
     },
     registration: value.registration,
     permission: value.permission,
+    accessibility: value.accessibility,
   };
 }
 
@@ -183,7 +191,8 @@ export function parseCaptureOutcome(value: unknown): CaptureOutcome | null {
     value.kind === "failure" &&
     ERROR_CODES.has(value.code as CaptureErrorCode) &&
     isNonEmptyString(value.message) &&
-    isPermissionState(value.permission)
+    isPermissionState(value.permission) &&
+    isPermissionState(value.accessibility)
   ) {
     return {
       kind: "failure",
@@ -192,6 +201,7 @@ export function parseCaptureOutcome(value: unknown): CaptureOutcome | null {
       code: value.code as CaptureErrorCode,
       message: value.message,
       permission: value.permission,
+      accessibility: value.accessibility,
       durationMs: value.durationMs,
     };
   }

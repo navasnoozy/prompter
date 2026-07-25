@@ -6,6 +6,7 @@ import {
   parseCaptureReadyEvent,
   parseClipboardTextPayload,
   parseQuickCaptureStatus,
+  QUICK_CAPTURE_CONTRACT_VERSION,
   type CaptureCommandError,
   type CaptureOutcome,
   type ClipboardTextPayload,
@@ -45,7 +46,7 @@ export function normalizeQuickCaptureError(
 ): CaptureCommandError {
   return (
     parseCaptureCommandError(error) ?? {
-      version: 1,
+      version: QUICK_CAPTURE_CONTRACT_VERSION,
       code: "internal",
       message: "Quick Capture could not finish. Please try again.",
     }

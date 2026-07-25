@@ -38,6 +38,9 @@ export function SettingsDialog() {
 
   const registrationReady = quickCaptureStatus?.registration === "registered";
   const permissionReady = quickCaptureStatus?.permission === "granted";
+  const accessibilityReady = quickCaptureStatus?.accessibility === "granted";
+  const anyPermissionMissing =
+    Boolean(quickCaptureStatus) && (!permissionReady || !accessibilityReady);
   const launchAtLoginEnabled = launchAtLogin === "enabled";
   const launchAtLoginUnavailable = launchAtLogin === "unavailable";
 
@@ -179,20 +182,37 @@ export function SettingsDialog() {
                   aria-hidden="true"
                   className={`settings-status-dot ${permissionReady ? "ready" : "attention"}`}
                 />
-                <strong>macOS permission</strong>
+                <strong>Keystroke permission</strong>
                 <p>
                   {!quickCaptureStatus
-                    ? "Checking macOS Accessibility permission…"
+                    ? "Checking keystroke permission…"
                     : permissionReady
-                    ? "Allowed to press Copy for your selected text."
-                    : "Required so Prompter can press Copy for you. Text is never sent automatically."}
+                      ? "Allowed to press Copy for your selected text."
+                      : "Required so Prompter can press Copy for you. Text is never sent automatically."}
+                </p>
+              </div>
+            </div>
+
+            <div className="quick-capture-check">
+              <div>
+                <span
+                  aria-hidden="true"
+                  className={`settings-status-dot ${accessibilityReady ? "ready" : "attention"}`}
+                />
+                <strong>Accessibility permission</strong>
+                <p>
+                  {!quickCaptureStatus
+                    ? "Checking Accessibility permission…"
+                    : accessibilityReady
+                      ? "Allowed to read the text you have selected."
+                      : "Required to read your selection. Enable Prompter under Privacy & Security → Accessibility, then relaunch Prompter. Rebuilding Prompter can reset this — switch it off and on again if it already looks enabled."}
                 </p>
               </div>
             </div>
           </div>
 
           <div className="settings-action-row">
-            {quickCaptureStatus && !permissionReady && (
+            {anyPermissionMissing && (
               <button
                 className="primary-button settings-action-button"
                 disabled={isRequestingPermission}
@@ -202,7 +222,7 @@ export function SettingsDialog() {
                 {isRequestingPermission ? "Requesting…" : "Enable Quick Capture"}
               </button>
             )}
-            {quickCaptureStatus && !permissionReady && (
+            {anyPermissionMissing && (
               <button
                 className="secondary-button settings-action-button"
                 onClick={() => void openSystemSettings()}

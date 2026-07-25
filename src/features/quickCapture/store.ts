@@ -22,6 +22,24 @@ type CaptureState = {
 let statusRequestGeneration = 0;
 let sourceTextRevision = 0;
 
+function permissionNotice(
+  status: QuickCaptureStatus,
+): ["success" | "info", string] {
+  if (status.accessibility !== "granted") {
+    return [
+      "info",
+      "Enable Prompter under Privacy & Security → Accessibility, then relaunch Prompter.",
+    ];
+  }
+  if (status.permission !== "granted") {
+    return [
+      "info",
+      "Permission is still required. Open System Settings to enable Prompter.",
+    ];
+  }
+  return ["success", "Quick Capture is ready"];
+}
+
 export const useCaptureStore = create<CaptureState>()((set, get) => ({
   sourceText: "",
   status: null,
@@ -75,12 +93,9 @@ export const useCaptureStore = create<CaptureState>()((set, get) => ({
       const status = await quickCaptureGateway.requestPermission();
       statusRequestGeneration += 1;
       set({ status, isRefreshingStatus: false });
-      publishNotice(
-        status.permission === "granted" ? "success" : "info",
-        status.permission === "granted"
-          ? "Quick Capture is ready"
-          : "Permission is still required. Open System Settings to enable Prompter.",
-      );
+      // macOS records the two grants separately, and Accessibility only takes
+      // effect for a process that was already trusted when it launched.
+      publishNotice(...permissionNotice(status));
     } catch (error) {
       publishNotice("error", normalizeQuickCaptureError(error).message);
     } finally {
@@ -150,11 +165,18 @@ function applyOutcome(outcome: CaptureOutcome): void {
 
   useCaptureStore.setState((state) => ({
     status: state.status
-      ? { ...state.status, permission: outcome.permission }
+      ? {
+          ...state.status,
+          permission: outcome.permission,
+          accessibility: outcome.accessibility,
+        }
       : state.status,
   }));
   publishNotice("error", outcome.message);
-  if (outcome.code === "permission_required") {
+  if (
+    outcome.code === "permission_required" ||
+    outcome.code === "accessibility_permission_required"
+  ) {
     useSettingsStore.getState().openSettings();
   }
 }

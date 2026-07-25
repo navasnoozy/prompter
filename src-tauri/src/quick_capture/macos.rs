@@ -6,6 +6,8 @@ use std::{
 
 use core_foundation::{
     base::{Boolean, CFEqual, CFIndex, CFRange, CFType, CFTypeRef, TCFType},
+    boolean::CFBoolean,
+    dictionary::{CFDictionary, CFDictionaryRef},
     string::{kCFStringEncodingUTF8, CFString, CFStringGetBytes, CFStringGetTypeID, CFStringRef},
 };
 
@@ -25,7 +27,8 @@ use objc2_core_graphics::{
 use objc2_foundation::{NSArray, NSData, NSString, NSURL};
 
 use super::service::{
-    BackendFailure, CaptureBackend, ClipboardSnapshot, RestoreDisposition, MAX_CAPTURE_BYTES,
+    BackendFailure, CaptureBackend, CapturePermissions, ClipboardSnapshot, RestoreDisposition,
+    MAX_CAPTURE_BYTES,
 };
 
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -55,14 +58,18 @@ enum StringConversionFailure {
 
 pub(crate) struct PasteboardSnapshot {
     change_count: isize,
-    frontmost_pid: i32,
-    focused_element: CFType,
+    target: CaptureTarget,
     items: Vec<PasteboardItemSnapshot>,
 }
 
 type AXUIElementRef = *const c_void;
 type AXError = i32;
 const AX_SUCCESS: AXError = 0;
+/// Returned by every Accessibility call when the process is not trusted in
+/// System Settings → Privacy & Security → Accessibility. It is the one AX
+/// error that means "ask the user for permission" rather than "this element
+/// has nothing to offer".
+const AX_ERROR_API_DISABLED: AXError = -25211;
 
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
@@ -73,6 +80,58 @@ unsafe extern "C" {
         value: *mut CFTypeRef,
     ) -> AXError;
     fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> AXError;
+    fn AXIsProcessTrusted() -> Boolean;
+    fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> Boolean;
+    static kAXTrustedCheckOptionPrompt: CFStringRef;
+}
+
+/// What a capture is aimed at, at the best fidelity the frontmost application
+/// is willing to publish.
+///
+/// Accessibility gives the exact focused control, which is the strongest guard
+/// against pasting one app's clipboard transaction into another. Plenty of
+/// applications publish no focused element at all, so capture degrades to
+/// process identity there rather than failing: the synthesized ⌘C never needed
+/// Accessibility, only the guard did.
+enum CaptureTarget {
+    FocusedElement { pid: i32, element: CFType },
+    Process { pid: i32 },
+}
+
+impl CaptureTarget {
+    fn resolve() -> Result<Self, BackendFailure> {
+        let pid = frontmost_process_id()?;
+        match focused_accessibility_element()? {
+            Some(element) if accessibility_element_pid(&element) == Some(pid) => {
+                Ok(Self::FocusedElement { pid, element })
+            }
+            _ => Ok(Self::Process { pid }),
+        }
+    }
+
+    fn pid(&self) -> i32 {
+        match self {
+            Self::FocusedElement { pid, .. } | Self::Process { pid } => *pid,
+        }
+    }
+
+    /// Re-resolves the target and reports whether it is still the one the
+    /// capture started against, comparing at the same fidelity it was captured
+    /// with so a degraded target never silently tightens or loosens the guard.
+    fn is_still_current(&self) -> Result<bool, BackendFailure> {
+        if frontmost_process_id()? != self.pid() {
+            return Ok(false);
+        }
+        let Self::FocusedElement { pid, element } = self else {
+            return Ok(true);
+        };
+        let Some(focused_now) = focused_accessibility_element()? else {
+            return Ok(false);
+        };
+        let same_element =
+            unsafe { CFEqual(element.as_CFTypeRef(), focused_now.as_CFTypeRef()) != 0 as Boolean };
+        Ok(same_element && accessibility_element_pid(&focused_now) == Some(*pid))
+    }
 }
 
 impl ClipboardSnapshot for PasteboardSnapshot {
@@ -84,13 +143,27 @@ impl ClipboardSnapshot for PasteboardSnapshot {
 pub(crate) struct MacCaptureBackend;
 
 impl MacCaptureBackend {
-    pub(crate) fn permission_state() -> bool {
-        CGPreflightPostEventAccess()
+    /// Quick Capture depends on two macOS grants that are recorded separately
+    /// even though System Settings shows them in one pane: posting the ⌘C
+    /// keystroke needs post-event access, while reading the focused control
+    /// needs Accessibility trust. Reporting only the first is what let the app
+    /// show a green permission row while every capture failed.
+    pub(crate) fn permission_state() -> CapturePermissions {
+        CapturePermissions {
+            post_event: CGPreflightPostEventAccess(),
+            accessibility: unsafe { AXIsProcessTrusted() != 0 as Boolean },
+        }
     }
 
-    pub(crate) fn request_permission() -> bool {
-        let _ = CGRequestPostEventAccess();
-        CGPreflightPostEventAccess()
+    pub(crate) fn request_permission() -> CapturePermissions {
+        let current = Self::permission_state();
+        if !current.post_event {
+            let _ = CGRequestPostEventAccess();
+        }
+        if !current.accessibility {
+            request_accessibility_trust();
+        }
+        Self::permission_state()
     }
 
     pub(crate) fn read_current_text() -> Result<String, BackendFailure> {
@@ -112,7 +185,7 @@ impl MacCaptureBackend {
 impl CaptureBackend for MacCaptureBackend {
     type Snapshot = PasteboardSnapshot;
 
-    fn has_event_posting_access(&self) -> bool {
+    fn permissions(&self) -> CapturePermissions {
         Self::permission_state()
     }
 
@@ -145,19 +218,8 @@ impl CaptureBackend for MacCaptureBackend {
         snapshot: &Self::Snapshot,
         expected_change_count: isize,
     ) -> Result<(), BackendFailure> {
-        let pasteboard = NSPasteboard::generalPasteboard();
-        let focused_now =
-            focused_accessibility_element().ok_or(BackendFailure::ClipboardChanged)?;
-        let same_element = unsafe {
-            CFEqual(
-                snapshot.focused_element.as_CFTypeRef(),
-                focused_now.as_CFTypeRef(),
-            ) != 0 as Boolean
-        };
-        if pasteboard.changeCount() != expected_change_count
-            || frontmost_process_id()? != snapshot.frontmost_pid
-            || accessibility_element_pid(&focused_now) != Some(snapshot.frontmost_pid)
-            || !same_element
+        if NSPasteboard::generalPasteboard().changeCount() != expected_change_count
+            || !snapshot.target.is_still_current()?
         {
             return Err(BackendFailure::ClipboardChanged);
         }
@@ -240,17 +302,18 @@ fn read_general_pasteboard_text(
 /// faster and safer than touching the clipboard. Unsupported controls fall
 /// back to the guarded clipboard transaction below.
 fn read_accessibility_selected_text() -> Result<Option<String>, BackendFailure> {
-    let Some(focused) = focused_accessibility_element() else {
+    let Some(focused) = focused_accessibility_element()? else {
         return Ok(None);
     };
 
-    let focused_pid =
-        accessibility_element_pid(&focused).ok_or(BackendFailure::ClipboardChanged)?;
+    let Some(focused_pid) = accessibility_element_pid(&focused) else {
+        return Ok(None);
+    };
     if frontmost_process_id()? != focused_pid {
         return Ok(None);
     }
 
-    let Some(selected) = copy_accessibility_attribute(&focused, "AXSelectedText") else {
+    let Some(selected) = copy_accessibility_attribute(&focused, "AXSelectedText")? else {
         return Ok(None);
     };
     if unsafe { core_foundation::base::CFGetTypeID(selected.as_CFTypeRef()) }
@@ -269,7 +332,9 @@ fn read_accessibility_selected_text() -> Result<Option<String>, BackendFailure> 
         Err(StringConversionFailure::TooLarge) => return Err(BackendFailure::SelectionTooLarge),
     };
 
-    let focused_after = focused_accessibility_element().ok_or(BackendFailure::ClipboardChanged)?;
+    let Some(focused_after) = focused_accessibility_element()? else {
+        return Err(BackendFailure::ClipboardChanged);
+    };
     let same_element =
         unsafe { CFEqual(focused.as_CFTypeRef(), focused_after.as_CFTypeRef()) != 0 as Boolean };
     if !same_element
@@ -282,16 +347,35 @@ fn read_accessibility_selected_text() -> Result<Option<String>, BackendFailure> 
     Ok(Some(text))
 }
 
-fn focused_accessibility_element() -> Option<CFType> {
+fn request_accessibility_trust() {
+    let options = CFDictionary::from_CFType_pairs(&[(
+        unsafe { CFString::wrap_under_get_rule(kAXTrustedCheckOptionPrompt) },
+        CFBoolean::true_value(),
+    )]);
+    // The prompt is advisory: macOS only records the grant once the user
+    // toggles Prompter in System Settings, so the refreshed status is what the
+    // caller reports, not this return value.
+    let _ = unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
+}
+
+fn focused_accessibility_element() -> Result<Option<CFType>, BackendFailure> {
     let system_ref = unsafe { AXUIElementCreateSystemWide() };
     if system_ref.is_null() {
-        return None;
+        return Ok(None);
     }
     let system = unsafe { CFType::wrap_under_create_rule(system_ref.cast()) };
     copy_accessibility_attribute(&system, "AXFocusedUIElement")
 }
 
-fn copy_accessibility_attribute(element: &CFType, attribute: &str) -> Option<CFType> {
+/// Reads one Accessibility attribute. `Ok(None)` means the element genuinely
+/// has no value for it — plenty of applications publish no focused control —
+/// while `Err` is reserved for the process-wide denial that makes every
+/// Accessibility call fail. Collapsing the two is what surfaced a missing
+/// permission as an unexplained clipboard error.
+fn copy_accessibility_attribute(
+    element: &CFType,
+    attribute: &str,
+) -> Result<Option<CFType>, BackendFailure> {
     let attribute = CFString::new(attribute);
     let mut value: CFTypeRef = ptr::null();
     let result = unsafe {
@@ -301,10 +385,13 @@ fn copy_accessibility_attribute(element: &CFType, attribute: &str) -> Option<CFT
             &mut value,
         )
     };
-    if result != AX_SUCCESS || value.is_null() {
-        return None;
+    if result == AX_ERROR_API_DISABLED {
+        return Err(BackendFailure::AccessibilityDenied);
     }
-    Some(unsafe { CFType::wrap_under_create_rule(value) })
+    if result != AX_SUCCESS || value.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(unsafe { CFType::wrap_under_create_rule(value) }))
 }
 
 fn accessibility_element_pid(element: &CFType) -> Option<i32> {
@@ -408,12 +495,7 @@ fn snapshot_general_pasteboard() -> Result<PasteboardSnapshot, BackendFailure> {
 
 fn snapshot_pasteboard(pasteboard: &NSPasteboard) -> Result<PasteboardSnapshot, BackendFailure> {
     let change_count = pasteboard.changeCount();
-    let frontmost_pid = frontmost_process_id()?;
-    let focused_element =
-        focused_accessibility_element().ok_or(BackendFailure::ClipboardUnavailable)?;
-    if accessibility_element_pid(&focused_element) != Some(frontmost_pid) {
-        return Err(BackendFailure::ClipboardChanged);
-    }
+    let target = CaptureTarget::resolve()?;
     let pasteboard_items = pasteboard.pasteboardItems();
     let item_count = pasteboard_items.as_ref().map_or(0, |items| items.len());
 
@@ -465,22 +547,13 @@ fn snapshot_pasteboard(pasteboard: &NSPasteboard) -> Result<PasteboardSnapshot, 
         snapshots.push(PasteboardItemSnapshot { representations });
     }
 
-    let focused_after = focused_accessibility_element().ok_or(BackendFailure::ClipboardChanged)?;
-    let focus_is_unchanged = unsafe {
-        CFEqual(focused_element.as_CFTypeRef(), focused_after.as_CFTypeRef()) != 0 as Boolean
-    };
-    if pasteboard.changeCount() != change_count
-        || frontmost_process_id()? != frontmost_pid
-        || accessibility_element_pid(&focused_after) != Some(frontmost_pid)
-        || !focus_is_unchanged
-    {
+    if pasteboard.changeCount() != change_count || !target.is_still_current()? {
         return Err(BackendFailure::ClipboardChanged);
     }
 
     Ok(PasteboardSnapshot {
         change_count,
-        frontmost_pid,
-        focused_element,
+        target,
         items: snapshots,
     })
 }
