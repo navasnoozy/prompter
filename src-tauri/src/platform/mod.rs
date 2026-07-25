@@ -8,6 +8,6 @@ pub(crate) use webview_navigation::{
     control_provider_navigation, detach_provider_navigation_observer,
     detach_provider_navigation_observer_by_label,
     detach_provider_navigation_observer_by_label_any_generation, observe_provider_navigation,
-    read_provider_navigation_snapshot, NativeNavigationAction, NativeNavigationOutcome,
-    NativeNavigationSnapshot,
+    read_provider_navigation_snapshot, verify_provider_navigation_observation,
+    NativeNavigationAction, NativeNavigationOutcome, NativeNavigationSnapshot,
 };

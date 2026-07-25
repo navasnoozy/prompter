@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, State, Webview};
 use tokio::time::timeout;
 
 use super::{
-    commands::{NavigationQuarantineGuard, ProviderLifecycle},
+    commands::{NavigationQuarantineGuard, NavigationTransitionLease, ProviderLifecycle},
     config::Provider,
     error::{ProviderCommandError, ProviderErrorCode},
 };
@@ -528,6 +528,78 @@ async fn fail_closed_provider_navigation(
     true
 }
 
+/// Resolves a transition lease that no main-frame signal settled inside the
+/// acknowledgment window.
+///
+/// WebKit's policy hook fires for every frame and carries no frame identity,
+/// so an accepted subframe load — a sign-in iframe, an `about:blank` document
+/// — opens a lease that `URL`/`loading` KVO can never settle: both properties
+/// describe the main frame alone. While the observer that would deliver those
+/// signals is still attached to this exact WebView, silence is positive
+/// evidence that the main frame never moved, and the pane is released instead
+/// of contained. Without that proof the observation channel itself is suspect,
+/// so containment stands.
+async fn settle_unacknowledged_transition(
+    app: &AppHandle,
+    provider: Provider,
+    transition: &NavigationTransitionLease,
+    webview: Webview,
+) {
+    let guard = NavigationQuarantineGuard::UnacknowledgedTransition {
+        token: transition.token,
+    };
+    let verification =
+        match platform::verify_provider_navigation_observation(&webview, transition.generation)
+            .await
+        {
+            Ok(verification) if verification.observer_attached => verification,
+            Ok(_) => {
+                fail_closed_provider_navigation(
+                    app,
+                    provider,
+                    transition.generation,
+                    Some(webview),
+                    guard,
+                    "The accepted provider navigation lost its state observer.",
+                )
+                .await;
+                return;
+            }
+            Err(error) => {
+                fail_closed_provider_navigation(
+                    app,
+                    provider,
+                    transition.generation,
+                    Some(webview),
+                    guard,
+                    &format!("Could not verify an accepted provider navigation: {error}"),
+                )
+                .await;
+                return;
+            }
+        };
+
+    record_native_snapshot(
+        app,
+        provider,
+        transition.generation,
+        verification.snapshot,
+        false,
+        false,
+        Some(transition.token),
+    );
+    if app
+        .state::<ProviderLifecycle>()
+        .release_navigation_transition(provider, transition.generation, transition.token)
+    {
+        log::info!(
+            target: "prompter::provider",
+            "event=navigation_transition_released reason=no_main_frame_change loading={}",
+            verification.snapshot.is_loading
+        );
+    }
+}
+
 /// Closes the decision-to-start gap for page-initiated navigation. The
 /// lifecycle receives a monotonic transition lease synchronously in
 /// `on_navigation`, then this task reads WebKit on the next main-loop turn
@@ -617,15 +689,11 @@ pub(super) fn reconcile_accepted_provider_navigation(app: &AppHandle, provider: 
                             transition.token,
                         )
                     {
-                        fail_closed_provider_navigation(
+                        settle_unacknowledged_transition(
                             &reconcile_app,
                             provider,
-                            transition.generation,
-                            Some(webview),
-                            NavigationQuarantineGuard::UnacknowledgedTransition {
-                                token: transition.token,
-                            },
-                            "WebKit did not acknowledge an accepted provider navigation.",
+                            &transition,
+                            webview,
                         )
                         .await;
                     }

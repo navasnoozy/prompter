@@ -717,6 +717,42 @@ impl ProviderLifecycle {
             .unwrap_or(false)
     }
 
+    /// Releases a transition lease whose accepted navigation never reached the
+    /// main frame. `on_navigation` is WebKit's policy hook for every frame, so
+    /// an accepted subframe load opens a lease that no main-frame KVO signal
+    /// can ever settle. Callers must first prove the observer that would have
+    /// delivered such a signal is still attached. Returns false when a newer
+    /// lease or a real signal already owns the state.
+    pub(super) fn release_navigation_transition(
+        &self,
+        provider: Provider,
+        generation: u32,
+        token: u64,
+    ) -> bool {
+        self.operation_states
+            .lock()
+            .map(|mut states| {
+                let Some(state) = states.get_mut(&provider) else {
+                    return false;
+                };
+                if state.navigation_generation != Some(generation) {
+                    return false;
+                }
+                let owns_transition = state
+                    .navigation_transition
+                    .as_ref()
+                    .is_some_and(|transition| transition.token == token);
+                if !owns_transition {
+                    return false;
+                }
+                if let Some(transition) = state.navigation_transition.take() {
+                    transition.notification.notify_one();
+                }
+                true
+            })
+            .unwrap_or(false)
+    }
+
     pub(super) fn invalidate_navigation_generation(&self, provider: Provider, generation: u32) {
         if let Ok(mut states) = self.operation_states.lock() {
             let state = states.entry(provider).or_default();
@@ -1682,6 +1718,66 @@ mod tests {
             7,
             transition.token
         ));
+    }
+
+    #[test]
+    fn an_expired_subframe_transition_is_released_without_closing_the_pane() {
+        let lifecycle = ProviderLifecycle::default();
+        lifecycle
+            .begin_navigation_generation(Provider::Chatgpt, 7)
+            .unwrap();
+        lifecycle.record_navigation_snapshot(Provider::Chatgpt, 7, false, true, None);
+
+        // An accepted iframe navigation opens a lease the main frame will
+        // never settle, so placement stays blocked until it is released.
+        let transition = lifecycle
+            .begin_navigation_transition(Provider::Chatgpt)
+            .unwrap()
+            .unwrap();
+        assert!(lifecycle
+            .register_request(Provider::Chatgpt, 7, "request-1")
+            .is_err());
+
+        assert!(!lifecycle.release_navigation_transition(
+            Provider::Chatgpt,
+            7,
+            transition.token + 1
+        ));
+        assert!(!lifecycle.release_navigation_transition(Provider::Chatgpt, 8, transition.token));
+        assert!(lifecycle.release_navigation_transition(Provider::Chatgpt, 7, transition.token));
+        assert!(!lifecycle.navigation_transition_is_current(
+            Provider::Chatgpt,
+            7,
+            transition.token
+        ));
+        assert!(!lifecycle.must_close(Provider::Chatgpt));
+        lifecycle
+            .register_request(Provider::Chatgpt, 7, "request-1")
+            .unwrap();
+    }
+
+    #[test]
+    fn releasing_an_expired_transition_cannot_unlock_a_newer_one() {
+        let lifecycle = ProviderLifecycle::default();
+        lifecycle
+            .begin_navigation_generation(Provider::Chatgpt, 7)
+            .unwrap();
+        lifecycle.record_navigation_snapshot(Provider::Chatgpt, 7, false, true, None);
+
+        let first = lifecycle
+            .begin_navigation_transition(Provider::Chatgpt)
+            .unwrap()
+            .unwrap();
+        let second = lifecycle
+            .begin_navigation_transition(Provider::Chatgpt)
+            .unwrap()
+            .unwrap();
+
+        assert!(!lifecycle.release_navigation_transition(Provider::Chatgpt, 7, first.token));
+        assert!(lifecycle.navigation_transition_is_current(Provider::Chatgpt, 7, second.token));
+        assert!(lifecycle
+            .register_request(Provider::Chatgpt, 7, "request-1")
+            .is_err());
     }
 
     #[test]

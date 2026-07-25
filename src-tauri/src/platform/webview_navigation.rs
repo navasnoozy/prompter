@@ -63,6 +63,12 @@ pub(crate) struct NativeNavigationObservation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NativeNavigationVerification {
+    pub(crate) observer_attached: bool,
+    pub(crate) snapshot: NativeNavigationSnapshot,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NativeNavigationAction {
     Back,
     Forward,
@@ -419,6 +425,38 @@ pub(crate) async fn read_provider_navigation_snapshot(
         .map_err(|error| format!("Could not schedule an embedded browser state read: {error}"))?;
 
     await_main_thread_result(receiver, "reading embedded browser state").await
+}
+
+/// Reads main-frame state together with proof that this generation's observer
+/// is still installed on this exact WKWebView. Absence of a KVO signal is only
+/// evidence about the main frame while the observer that would deliver it is
+/// attached.
+pub(crate) async fn verify_provider_navigation_observation(
+    webview: &Webview,
+    generation: u32,
+) -> Result<NativeNavigationVerification, String> {
+    let label = webview.label().to_string();
+    let (sender, receiver) = oneshot::channel();
+    webview
+        .with_webview(move |platform_webview| {
+            // SAFETY: Tauri invokes with_webview on the main thread with a
+            // valid WKWebView pointer for the duration of this callback.
+            let native_webview = unsafe { &*platform_webview.inner().cast::<WKWebView>() };
+            let native_identity = native_webview as *const WKWebView as usize;
+            let observer_attached = OBSERVERS.with(|observers| {
+                observers.borrow().get(&label).is_some_and(|registration| {
+                    registration.generation == generation
+                        && registration.native_identity == native_identity
+                })
+            });
+            let _ = sender.send(Ok(NativeNavigationVerification {
+                observer_attached,
+                snapshot: snapshot(native_webview),
+            }));
+        })
+        .map_err(|error| format!("Could not schedule an embedded browser state read: {error}"))?;
+
+    await_main_thread_result(receiver, "verifying embedded browser observation").await
 }
 
 pub(crate) async fn control_provider_navigation(
