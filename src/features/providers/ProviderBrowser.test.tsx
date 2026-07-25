@@ -32,7 +32,7 @@ describe("ProviderBrowser", () => {
 
   afterEach(cleanup);
 
-  it("shows the opening placeholder while the panel is closed", () => {
+  it("renders the browser host while the panel is closed", () => {
     act(() => {
       useProviderStore
         .getState()
@@ -40,14 +40,13 @@ describe("ProviderBrowser", () => {
       useProviderStore.setState({ panelOpen: false });
     });
 
-    render(<ProviderBrowser hostRef={createRef<HTMLDivElement>()} />);
+    const { container } = render(
+      <ProviderBrowser hostRef={createRef<HTMLDivElement>()} />,
+    );
 
     expect(
-      screen
-        .getByText("Opening ChatGPT…")
-        .closest("[role='status']")
-        ?.getAttribute("aria-hidden"),
-    ).toBe("false");
+      container.querySelector("#provider-browser-content"),
+    ).not.toBeNull();
   });
 
   it("scopes busy semantics to browser content and announces loading", () => {

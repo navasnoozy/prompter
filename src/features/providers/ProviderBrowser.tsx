@@ -1,5 +1,4 @@
 import type { RefObject } from "react";
-import { Icon } from "../../shared/Icon";
 import { getProviderLabel } from "./model";
 import { useProviderStore } from "./store";
 
@@ -28,18 +27,6 @@ export function ProviderBrowser({ hostRef }: ProviderBrowserProps) {
             ? `${label} page is loading.`
             : ""}
         </span>
-        <div
-          aria-hidden={panelOpen}
-          aria-live="polite"
-          className="provider-loading-placeholder"
-          role="status"
-        >
-          <span className="empty-orbit">
-            <Icon name="sparkle" size={25} />
-          </span>
-          <strong>Opening {label}…</strong>
-          <p>Sign in here once, then use the same panel for every rewrite.</p>
-        </div>
         <div
           aria-busy={panelOpen && navigation.isLoading}
           className="provider-webview-host"
