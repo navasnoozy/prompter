@@ -81,6 +81,12 @@
 .theme-dark .quick-capture-check,
 .theme-dark .settings-preference-row { border-color: var(--border-preference); background: var(--surface-inset); }
 .theme-dark .settings-shortcut { color: var(--text-shortcut); border-color: var(--border-shortcut); background: var(--surface-shortcut); }
+.theme-dark .shortcut-recorder-hint { color: var(--text-secondary); }
+.theme-dark .shortcut-recorder-target.recording .settings-shortcut {
+  color: var(--accent-selected-text);
+  border-color: var(--accent-selected-border);
+  background: var(--accent-selected-bg);
+}
 
 @media (max-width: 680px) {
   .app-shell { display: block; }

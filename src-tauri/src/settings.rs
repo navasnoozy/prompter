@@ -11,11 +11,21 @@ use std::{
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const MAX_SETTINGS_BYTES: u64 = 16 * 1024 * 1024;
 const ALLOWED_KEYS: [&str; 4] = ["presets", "selectedInstructionId", "theme", "provider"];
+
+/// The Quick Capture accelerator, owned by the Rust side.
+pub(crate) const QUICK_CAPTURE_SHORTCUT_KEY: &str = "quickCaptureShortcut";
+
+/// Backend-owned keys share the settings document so one atomic write keeps
+/// every preference consistent, but they are deliberately absent from
+/// `ALLOWED_KEYS`. The webview therefore cannot overwrite them through
+/// `save_settings`, and never receives them from `load_settings`; the shortcut
+/// reaches the frontend through the validated Quick Capture status instead.
+const BACKEND_KEYS: [&str; 1] = [QUICK_CAPTURE_SHORTCUT_KEY];
 
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -182,7 +192,44 @@ fn is_allowed_key(key: &str) -> bool {
     ALLOWED_KEYS.contains(&key)
 }
 
-fn settings_path(app: &AppHandle) -> Result<PathBuf, SettingsCommandError> {
+/// Reads a backend-owned string, or `None` when it was never written or the
+/// document cannot be read. Callers treat absence as "use the default", so a
+/// damaged settings file degrades to defaults instead of failing startup.
+pub(crate) fn read_backend_string<R: Runtime>(
+    app: &AppHandle<R>,
+    coordinator: &SettingsCoordinator,
+    key: &str,
+) -> Option<String> {
+    debug_assert!(BACKEND_KEYS.contains(&key), "{key} is not a backend key");
+    // Held across the read so a concurrent `save_settings` cannot be observed
+    // half-applied.
+    let _guard = coordinator.lock().ok()?;
+    let path = settings_path(app).ok()?;
+    read_document(&path)
+        .ok()?
+        .get(key)?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// Writes a backend-owned string, preserving every frontend key already in the
+/// document. Serialized against `save_settings` through the same lock, so
+/// neither side can lose the other's update.
+pub(crate) fn write_backend_string<R: Runtime>(
+    app: &AppHandle<R>,
+    coordinator: &SettingsCoordinator,
+    key: &str,
+    value: &str,
+) -> Result<(), SettingsCommandError> {
+    debug_assert!(BACKEND_KEYS.contains(&key), "{key} is not a backend key");
+    let _guard = coordinator.lock()?;
+    let path = settings_path(app)?;
+    let mut document = read_document(&path)?;
+    document.insert(key.to_owned(), Value::String(value.to_owned()));
+    write_document_atomically(&path, &document)
+}
+
+fn settings_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, SettingsCommandError> {
     app.path()
         .app_data_dir()
         .map(|directory| directory.join(SETTINGS_FILE_NAME))
@@ -372,6 +419,53 @@ mod tests {
         }
         assert!(!is_allowed_key("../outside.json"));
         assert!(!is_allowed_key("unknown"));
+    }
+
+    #[test]
+    fn backend_owned_keys_are_never_writable_by_the_webview() {
+        // Adding a backend key to `ALLOWED_KEYS` would let the webview set the
+        // global shortcut without passing validation, so the split is asserted.
+        for key in BACKEND_KEYS {
+            assert!(
+                !is_allowed_key(key),
+                "{key} must stay out of the frontend allowlist"
+            );
+        }
+    }
+
+    #[test]
+    fn a_backend_write_preserves_frontend_keys_and_survives_a_frontend_write() {
+        let directory = std::env::temp_dir().join(format!(
+            "prompter-settings-backend-key-test-{}-{}",
+            std::process::id(),
+            TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let path = directory.join(SETTINGS_FILE_NAME);
+        let mut state = SettingsState {
+            active_session_id: 1,
+            latest_revisions: BTreeMap::new(),
+        };
+
+        let mut document = BTreeMap::new();
+        document.insert("theme".into(), Value::String("dark".into()));
+        document.insert(
+            QUICK_CAPTURE_SHORTCUT_KEY.into(),
+            Value::String("shift+super+KeyJ".into()),
+        );
+        write_document_atomically(&path, &document).unwrap();
+
+        apply_settings_update(
+            &path,
+            &mut state,
+            BTreeMap::from([("theme".into(), Value::String("light".into()))]),
+            2,
+        )
+        .unwrap();
+
+        let reloaded = read_document(&path).unwrap();
+        assert_eq!(reloaded["theme"], "light");
+        assert_eq!(reloaded[QUICK_CAPTURE_SHORTCUT_KEY], "shift+super+KeyJ");
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

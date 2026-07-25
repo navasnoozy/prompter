@@ -1,8 +1,6 @@
 use serde::Serialize;
 
-pub(crate) const CONTRACT_VERSION: u8 = 2;
-pub(crate) const CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+P";
-pub(crate) const CAPTURE_SHORTCUT_DISPLAY: &str = "⌘ ⇧ P";
+pub(crate) const CONTRACT_VERSION: u8 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -28,6 +26,8 @@ pub(crate) enum CaptureErrorCode {
     ClipboardChanged,
     ClipboardTooLarge,
     ShortcutKeysHeld,
+    ShortcutInvalid,
+    ShortcutUnavailable,
     CopyFailed,
     CopyTimedOut,
     NoText,
@@ -54,12 +54,20 @@ impl CaptureErrorCode {
             Self::ClipboardTooLarge => {
                 "Quick Capture cannot safely preserve the current clipboard because it is too large."
             }
+            // The shortcut is user-configurable, so these read without naming
+            // a specific key combination.
             Self::ShortcutKeysHeld => {
-                "Release the shortcut keys, then press ⌘ ⇧ P again."
+                "Release the shortcut keys, then press the Quick Capture shortcut again."
+            }
+            Self::ShortcutInvalid => {
+                "That key combination cannot be used. Hold ⌘, ⌥, or ⌃ together with another key."
+            }
+            Self::ShortcutUnavailable => {
+                "macOS or another app is already using that shortcut. Choose a different combination."
             }
             Self::CopyFailed => "Prompter could not copy the selected text.",
             Self::CopyTimedOut => {
-                "Nothing was copied. Select some text, then press ⌘ ⇧ P again."
+                "Nothing was copied. Select some text, then use the Quick Capture shortcut again."
             }
             Self::NoText => "The selected content was not readable as text.",
             Self::SelectionTooLarge => {
@@ -93,8 +101,9 @@ impl CaptureWarningCode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ShortcutDescriptor {
-    pub(crate) accelerator: &'static str,
-    pub(crate) display: &'static str,
+    /// Canonical accelerator, as normalized by the shortcut module.
+    pub(crate) accelerator: String,
+    pub(crate) display: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -111,16 +120,14 @@ pub(crate) struct QuickCaptureStatus {
 
 impl QuickCaptureStatus {
     pub(crate) fn new(
+        shortcut: ShortcutDescriptor,
         registration: ShortcutRegistrationState,
         permission: PermissionState,
         accessibility: PermissionState,
     ) -> Self {
         Self {
             version: CONTRACT_VERSION,
-            shortcut: ShortcutDescriptor {
-                accelerator: CAPTURE_SHORTCUT,
-                display: CAPTURE_SHORTCUT_DISPLAY,
-            },
+            shortcut,
             registration,
             permission,
             accessibility,
@@ -235,6 +242,10 @@ mod tests {
     #[test]
     fn status_contract_reports_both_macos_grants_separately() {
         let status = QuickCaptureStatus::new(
+            ShortcutDescriptor {
+                accelerator: "shift+super+KeyP".into(),
+                display: "⇧ ⌘ P".into(),
+            },
             ShortcutRegistrationState::Registered,
             PermissionState::Granted,
             PermissionState::Required,
@@ -242,10 +253,28 @@ mod tests {
         let value = serde_json::to_value(status).expect("status should serialize");
 
         assert_eq!(value["version"], CONTRACT_VERSION);
-        assert_eq!(value["shortcut"]["accelerator"], CAPTURE_SHORTCUT);
-        assert_eq!(value["shortcut"]["display"], CAPTURE_SHORTCUT_DISPLAY);
+        assert_eq!(value["shortcut"]["accelerator"], "shift+super+KeyP");
+        assert_eq!(value["shortcut"]["display"], "⇧ ⌘ P");
         assert_eq!(value["registration"], "registered");
         assert_eq!(value["permission"], "granted");
         assert_eq!(value["accessibility"], "required");
+    }
+
+    #[test]
+    fn shortcut_rejection_messages_never_name_a_fixed_key_combination() {
+        // The shortcut is configurable, so guidance that hardcodes one would
+        // be wrong for every user who changed it.
+        for code in [
+            CaptureErrorCode::ShortcutKeysHeld,
+            CaptureErrorCode::CopyTimedOut,
+        ] {
+            let message = code.user_message();
+            for glyph in ["⌘", "⇧", "⌃", "⌥"] {
+                assert!(
+                    !message.contains(glyph),
+                    "{code:?} names {glyph}, which is wrong once the user rebinds the shortcut"
+                );
+            }
+        }
     }
 }

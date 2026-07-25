@@ -1,6 +1,7 @@
 mod macos;
 mod model;
 mod service;
+mod shortcut;
 
 use std::{
     collections::{HashSet, VecDeque},
@@ -18,6 +19,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutEvent, ShortcutSta
 
 use crate::{
     app_lifecycle::{self, ActivationSource},
+    settings::{self, SettingsCoordinator},
     MAIN_WINDOW_LABEL,
 };
 
@@ -26,9 +28,10 @@ use self::{
     model::{
         CaptureCommandError, CaptureErrorCode, CaptureOutcome, CaptureReadyEvent, CaptureWarning,
         CaptureWarningCode, ClipboardTextPayload, PermissionState, QuickCaptureStatus,
-        ShortcutRegistrationState, CAPTURE_SHORTCUT, CONTRACT_VERSION,
+        ShortcutDescriptor, ShortcutRegistrationState, CONTRACT_VERSION,
     },
     service::{capture_selection, map_backend_failure, validate_text, CapturePermissions},
+    shortcut::{ResolvedShortcut, ShortcutRejection},
 };
 
 const READY_EVENT: &str = "prompter://quick-capture-ready";
@@ -49,7 +52,12 @@ enum CaptureBlocked {
 }
 
 pub(crate) struct QuickCaptureCoordinator {
+    /// The combination the app currently intends to own. Always a resolved
+    /// value, so nothing downstream has to re-validate it.
+    shortcut: RwLock<ResolvedShortcut>,
     registration: RwLock<ShortcutRegistrationState>,
+    /// Serializes every registration change so two rebinds cannot interleave
+    /// and leave the manager bound to one combination and the state to another.
     registration_gate: Mutex<()>,
     capture_state: Arc<Mutex<CaptureState>>,
     exit_waiter_started: AtomicBool,
@@ -60,6 +68,7 @@ pub(crate) struct QuickCaptureCoordinator {
 impl Default for QuickCaptureCoordinator {
     fn default() -> Self {
         Self {
+            shortcut: RwLock::new(shortcut::default_resolved()),
             registration: RwLock::new(ShortcutRegistrationState::Unavailable),
             registration_gate: Mutex::new(()),
             capture_state: Arc::new(Mutex::new(CaptureState::default())),
@@ -71,6 +80,28 @@ impl Default for QuickCaptureCoordinator {
 }
 
 impl QuickCaptureCoordinator {
+    fn shortcut(&self) -> ResolvedShortcut {
+        self.shortcut
+            .read()
+            .map(|value| value.clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+    }
+
+    fn set_shortcut(&self, value: ResolvedShortcut) {
+        match self.shortcut.write() {
+            Ok(mut shortcut) => *shortcut = value,
+            Err(poisoned) => *poisoned.into_inner() = value,
+        }
+    }
+
+    fn descriptor(&self) -> ShortcutDescriptor {
+        let resolved = self.shortcut();
+        ShortcutDescriptor {
+            accelerator: resolved.accelerator,
+            display: resolved.display,
+        }
+    }
+
     fn registration(&self) -> ShortcutRegistrationState {
         self.registration
             .read()
@@ -175,14 +206,44 @@ pub(crate) fn shortcut_plugin<R: Runtime>() -> TauriPlugin<R> {
 }
 
 pub(crate) fn initialize<R: Runtime>(app: &AppHandle<R>) {
+    // Loaded before registering, and independently of the webview: Quick
+    // Capture has to work from a cold start with the window still hidden.
+    let configured = load_configured_shortcut(app);
+    app.state::<QuickCaptureCoordinator>()
+        .set_shortcut(configured);
+
     let status = register_shortcut(app);
     info!(
         target: "prompter::quick_capture",
-        "event=shortcut_registration state={:?} permission={:?} accessibility={:?}",
+        "event=shortcut_registration state={:?} accelerator={} permission={:?} accessibility={:?}",
         status.registration,
+        status.shortcut.accelerator,
         status.permission,
         status.accessibility
     );
+}
+
+/// A stored accelerator is untrusted on the way back in — the file is
+/// user-writable and may predate the current contract. Anything that no longer
+/// resolves degrades to the default rather than leaving the app with no
+/// shortcut at all.
+fn load_configured_shortcut<R: Runtime>(app: &AppHandle<R>) -> ResolvedShortcut {
+    let settings_coordinator = app.state::<SettingsCoordinator>();
+    let Some(stored) = settings::read_backend_string(
+        app,
+        &settings_coordinator,
+        settings::QUICK_CAPTURE_SHORTCUT_KEY,
+    ) else {
+        return shortcut::default_resolved();
+    };
+
+    shortcut::resolve(&stored).unwrap_or_else(|rejection| {
+        warn!(
+            target: "prompter::quick_capture",
+            "event=stored_shortcut_rejected reason={rejection:?} action=fell_back_to_default"
+        );
+        shortcut::default_resolved()
+    })
 }
 
 fn register_shortcut<R: Runtime>(app: &AppHandle<R>) -> QuickCaptureStatus {
@@ -192,24 +253,108 @@ fn register_shortcut<R: Runtime>(app: &AppHandle<R>) -> QuickCaptureStatus {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    let shortcut_manager = app.global_shortcut();
-    let registration = if shortcut_manager.is_registered(CAPTURE_SHORTCUT) {
-        ShortcutRegistrationState::Registered
-    } else {
-        match shortcut_manager.on_shortcut(CAPTURE_SHORTCUT, handle_shortcut::<R>) {
-            Ok(()) => ShortcutRegistrationState::Registered,
-            Err(registration_error) => {
-                warn!(
-                    target: "prompter::quick_capture",
-                    "event=shortcut_registration_failed reason={registration_error}"
-                );
-                ShortcutRegistrationState::Unavailable
-            }
-        }
-    };
-
+    let registration = bind(app, coordinator.shortcut().shortcut);
     coordinator.set_registration(registration);
     current_status(&coordinator)
+}
+
+/// Claims a combination with the OS. Idempotent: one Prompter already holds is
+/// reported as registered instead of being claimed twice.
+///
+/// Callers must hold `registration_gate`.
+fn bind<R: Runtime>(
+    app: &AppHandle<R>,
+    shortcut: tauri_plugin_global_shortcut::Shortcut,
+) -> ShortcutRegistrationState {
+    let shortcut_manager = app.global_shortcut();
+    if shortcut_manager.is_registered(shortcut) {
+        return ShortcutRegistrationState::Registered;
+    }
+
+    match shortcut_manager.on_shortcut(shortcut, handle_shortcut::<R>) {
+        Ok(()) => ShortcutRegistrationState::Registered,
+        Err(registration_error) => {
+            warn!(
+                target: "prompter::quick_capture",
+                "event=shortcut_registration_failed reason={registration_error}"
+            );
+            ShortcutRegistrationState::Unavailable
+        }
+    }
+}
+
+/// Moves Quick Capture onto `next`, keeping the OS registration, the in-memory
+/// state, and the settings file in agreement. Every failure path restores the
+/// previous combination, so a rejected change never costs the user the
+/// shortcut they already had.
+fn apply_shortcut<R: Runtime>(
+    app: &AppHandle<R>,
+    next: ResolvedShortcut,
+) -> Result<QuickCaptureStatus, CaptureCommandError> {
+    let coordinator = app.state::<QuickCaptureCoordinator>();
+    let _registration_guard = coordinator
+        .registration_gate
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    let previous = coordinator.shortcut();
+    if previous == next && coordinator.registration() == ShortcutRegistrationState::Registered {
+        return Ok(current_status(&coordinator));
+    }
+
+    // Release the old combination first: leaving it bound would keep firing
+    // captures, and re-choosing it would then collide with itself.
+    let _ = app.global_shortcut().unregister(previous.shortcut);
+
+    if bind(app, next.shortcut) == ShortcutRegistrationState::Unavailable {
+        restore(app, &coordinator, previous);
+        return Err(CaptureCommandError::new(
+            CaptureErrorCode::ShortcutUnavailable,
+        ));
+    }
+
+    let settings_coordinator = app.state::<SettingsCoordinator>();
+    if let Err(persist_error) = settings::write_backend_string(
+        app,
+        &settings_coordinator,
+        settings::QUICK_CAPTURE_SHORTCUT_KEY,
+        &next.accelerator,
+    ) {
+        // Accepting a choice that silently reverts on the next launch is worse
+        // than refusing it, so the successful registration is undone.
+        warn!(
+            target: "prompter::quick_capture",
+            "event=shortcut_persist_failed reason={persist_error:?}"
+        );
+        let _ = app.global_shortcut().unregister(next.shortcut);
+        restore(app, &coordinator, previous);
+        return Err(CaptureCommandError::new(CaptureErrorCode::Internal));
+    }
+
+    info!(
+        target: "prompter::quick_capture",
+        "event=shortcut_changed from={} to={}",
+        previous.accelerator,
+        next.accelerator
+    );
+    coordinator.set_shortcut(next);
+    coordinator.set_registration(ShortcutRegistrationState::Registered);
+    Ok(current_status(&coordinator))
+}
+
+/// Puts the previous combination back after a failed change. Re-registration
+/// can itself fail, which is recorded as `Unavailable` so the status stays
+/// truthful and the existing retry affordance appears.
+///
+/// Callers must hold `registration_gate`.
+fn restore<R: Runtime>(
+    app: &AppHandle<R>,
+    coordinator: &QuickCaptureCoordinator,
+    previous: ResolvedShortcut,
+) {
+    let registration = bind(app, previous.shortcut);
+    coordinator.set_shortcut(previous);
+    coordinator.set_registration(registration);
 }
 
 fn handle_shortcut<R: Runtime>(
@@ -344,6 +489,7 @@ fn status_for(
     permissions: CapturePermissions,
 ) -> QuickCaptureStatus {
     QuickCaptureStatus::new(
+        coordinator.descriptor(),
         coordinator.registration(),
         permission_state(permissions.post_event),
         permission_state(permissions.accessibility),
@@ -386,6 +532,36 @@ pub(crate) fn retry_quick_capture_registration<R: Runtime>(
     app: AppHandle<R>,
 ) -> QuickCaptureStatus {
     register_shortcut(&app)
+}
+
+#[tauri::command]
+pub(crate) fn set_quick_capture_shortcut<R: Runtime>(
+    app: AppHandle<R>,
+    accelerator: String,
+) -> Result<QuickCaptureStatus, CaptureCommandError> {
+    // The webview is not trusted to have validated this. A well-behaved
+    // recorder only ever sends resolvable combinations, so a rejection here
+    // means a bug or a tampered caller, and is logged as such.
+    let resolved = shortcut::resolve(&accelerator).map_err(|rejection| {
+        warn!(
+            target: "prompter::quick_capture",
+            "event=shortcut_rejected reason={rejection:?}"
+        );
+        CaptureCommandError::new(match rejection {
+            ShortcutRejection::Unreadable | ShortcutRejection::MissingModifier => {
+                CaptureErrorCode::ShortcutInvalid
+            }
+        })
+    })?;
+
+    apply_shortcut(&app, resolved)
+}
+
+#[tauri::command]
+pub(crate) fn reset_quick_capture_shortcut<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<QuickCaptureStatus, CaptureCommandError> {
+    apply_shortcut(&app, shortcut::default_resolved())
 }
 
 #[tauri::command]

@@ -11,11 +11,15 @@ type CaptureState = {
   isCapturingClipboard: boolean;
   isRequestingPermission: boolean;
   isRetryingRegistration: boolean;
+  isSavingShortcut: boolean;
   setSourceText: (text: string) => void;
   refreshStatus: (reportFailure?: boolean) => Promise<void>;
   captureClipboard: () => Promise<void>;
   requestPermission: () => Promise<void>;
   retryRegistration: () => Promise<void>;
+  /** Resolves `true` once the backend has accepted and stored the change. */
+  setShortcut: (accelerator: string) => Promise<boolean>;
+  resetShortcut: () => Promise<boolean>;
   openSystemSettings: () => Promise<void>;
 };
 
@@ -47,6 +51,7 @@ export const useCaptureStore = create<CaptureState>()((set, get) => ({
   isCapturingClipboard: false,
   isRequestingPermission: false,
   isRetryingRegistration: false,
+  isSavingShortcut: false,
 
   setSourceText: (text) => {
     sourceTextRevision += 1;
@@ -122,6 +127,14 @@ export const useCaptureStore = create<CaptureState>()((set, get) => ({
     }
   },
 
+  setShortcut: (accelerator) =>
+    changeShortcut(set, get, () =>
+      quickCaptureGateway.setShortcut(accelerator),
+    ),
+
+  resetShortcut: () =>
+    changeShortcut(set, get, () => quickCaptureGateway.resetShortcut()),
+
   openSystemSettings: async () => {
     try {
       await quickCaptureGateway.openSystemSettings();
@@ -130,6 +143,32 @@ export const useCaptureStore = create<CaptureState>()((set, get) => ({
     }
   },
 }));
+
+/**
+ * Shared by both shortcut changes. The backend rolls back to the previous
+ * combination when a change fails, so a rejection leaves the last known status
+ * in place rather than clearing it.
+ */
+async function changeShortcut(
+  set: (partial: Partial<CaptureState>) => void,
+  get: () => CaptureState,
+  change: () => Promise<QuickCaptureStatus>,
+): Promise<boolean> {
+  if (get().isSavingShortcut) return false;
+  set({ isSavingShortcut: true });
+  try {
+    const status = await change();
+    statusRequestGeneration += 1;
+    set({ status, isRefreshingStatus: false });
+    publishNotice("success", `Shortcut set to ${status.shortcut.display}`);
+    return true;
+  } catch (error) {
+    publishNotice("error", normalizeQuickCaptureError(error).message);
+    return false;
+  } finally {
+    set({ isSavingShortcut: false });
+  }
+}
 
 // The prompt textarea registers itself so a completed capture can hand
 // keyboard focus straight to it without prop plumbing.

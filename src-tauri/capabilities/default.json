@@ -21,6 +21,8 @@
     "allow-request-quick-capture-permission",
     "allow-open-quick-capture-settings",
     "allow-retry-quick-capture-registration",
+    "allow-set-quick-capture-shortcut",
+    "allow-reset-quick-capture-shortcut",
     "allow-read-clipboard-text",
     "allow-list-quick-capture-outcomes",
     "allow-acknowledge-quick-capture-outcomes",

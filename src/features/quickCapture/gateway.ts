@@ -18,6 +18,8 @@ export const QUICK_CAPTURE_COMMANDS = {
   requestPermission: "request_quick_capture_permission",
   openSettings: "open_quick_capture_settings",
   retryRegistration: "retry_quick_capture_registration",
+  setShortcut: "set_quick_capture_shortcut",
+  resetShortcut: "reset_quick_capture_shortcut",
   readClipboardText: "read_clipboard_text",
   listOutcomes: "list_quick_capture_outcomes",
   acknowledgeOutcomes: "acknowledge_quick_capture_outcomes",
@@ -34,8 +36,11 @@ export class QuickCaptureProtocolError extends Error {
   }
 }
 
-async function invokeStatus(command: string): Promise<QuickCaptureStatus> {
-  const value = await invoke<unknown>(command);
+async function invokeStatus(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<QuickCaptureStatus> {
+  const value = await invoke<unknown>(command, args);
   const status = parseQuickCaptureStatus(value);
   if (!status) throw new QuickCaptureProtocolError("status");
   return status;
@@ -64,6 +69,15 @@ export const quickCaptureGateway = {
 
   retryRegistration(): Promise<QuickCaptureStatus> {
     return invokeStatus(QUICK_CAPTURE_COMMANDS.retryRegistration);
+  },
+
+  /** Rejected combinations surface as a `CaptureCommandError`. */
+  setShortcut(accelerator: string): Promise<QuickCaptureStatus> {
+    return invokeStatus(QUICK_CAPTURE_COMMANDS.setShortcut, { accelerator });
+  },
+
+  resetShortcut(): Promise<QuickCaptureStatus> {
+    return invokeStatus(QUICK_CAPTURE_COMMANDS.resetShortcut);
   },
 
   openSystemSettings(): Promise<void> {

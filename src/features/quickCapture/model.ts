@@ -1,7 +1,16 @@
 import { isNonEmptyString, isRecord } from "../../shared/contracts";
 
-export const QUICK_CAPTURE_CONTRACT_VERSION = 2;
-export const DEFAULT_SHORTCUT_DISPLAY = "⌘ ⇧ P";
+export const QUICK_CAPTURE_CONTRACT_VERSION = 3;
+/**
+ * Shown only until the real status arrives. Modifiers follow the macOS order
+ * (⌃⌥⇧⌘) the backend renders, so the placeholder does not visibly reshuffle.
+ */
+export const DEFAULT_SHORTCUT_DISPLAY = "⇧ ⌘ P";
+/**
+ * The backend's canonical spelling of the same default. Used only to decide
+ * whether "Use default" is worth offering; the backend owns the actual reset.
+ */
+export const DEFAULT_ACCELERATOR = "shift+super+KeyP";
 
 export type PermissionState = "granted" | "required";
 export type ShortcutRegistrationState = "registered" | "unavailable";
@@ -13,6 +22,8 @@ export type CaptureErrorCode =
   | "clipboard_changed"
   | "clipboard_too_large"
   | "shortcut_keys_held"
+  | "shortcut_invalid"
+  | "shortcut_unavailable"
   | "copy_failed"
   | "copy_timed_out"
   | "no_text"
@@ -22,12 +33,16 @@ export type CaptureWarningCode =
   | "clipboard_restore_failed"
   | "window_unavailable";
 
+export type ShortcutDescriptor = {
+  /** Canonical accelerator, as normalized by the backend. */
+  accelerator: string;
+  /** Ready to render: glyphs in macOS order. */
+  display: string;
+};
+
 export type QuickCaptureStatus = {
-  version: 2;
-  shortcut: {
-    accelerator: string;
-    display: string;
-  };
+  version: 3;
+  shortcut: ShortcutDescriptor;
   registration: ShortcutRegistrationState;
   /** Permission to synthesize the ⌘C keystroke. */
   permission: PermissionState;
@@ -42,7 +57,7 @@ export type CaptureWarning = {
 
 export type CaptureSuccess = {
   kind: "success";
-  version: 2;
+  version: 3;
   requestId: string;
   text: string;
   warnings: CaptureWarning[];
@@ -51,7 +66,7 @@ export type CaptureSuccess = {
 
 export type CaptureFailure = {
   kind: "failure";
-  version: 2;
+  version: 3;
   requestId: string;
   code: CaptureErrorCode;
   message: string;
@@ -63,17 +78,17 @@ export type CaptureFailure = {
 export type CaptureOutcome = CaptureSuccess | CaptureFailure;
 
 export type CaptureReadyEvent = {
-  version: 2;
+  version: 3;
   requestId: string;
 };
 
 export type ClipboardTextPayload = {
-  version: 2;
+  version: 3;
   text: string;
 };
 
 export type CaptureCommandError = {
-  version: 2;
+  version: 3;
   code: CaptureErrorCode;
   message: string;
 };
@@ -86,6 +101,8 @@ const ERROR_CODES = new Set<CaptureErrorCode>([
   "clipboard_changed",
   "clipboard_too_large",
   "shortcut_keys_held",
+  "shortcut_invalid",
+  "shortcut_unavailable",
   "copy_failed",
   "copy_timed_out",
   "no_text",
@@ -97,7 +114,7 @@ const WARNING_CODES = new Set<CaptureWarningCode>([
   "window_unavailable",
 ]);
 
-function isContractVersion(value: unknown): value is 2 {
+function isContractVersion(value: unknown): value is 3 {
   return value === QUICK_CAPTURE_CONTRACT_VERSION;
 }
 

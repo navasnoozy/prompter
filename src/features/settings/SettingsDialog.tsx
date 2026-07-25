@@ -1,6 +1,7 @@
 import { Icon } from "../../shared/Icon";
 import { ModalBackdrop } from "../../shared/ModalBackdrop";
 import { useLifecycleStore } from "../lifecycle/store";
+import { ShortcutRecorder } from "../quickCapture/ShortcutRecorder";
 import { useCaptureStore } from "../quickCapture/store";
 import { useSettingsStore } from "./store";
 
@@ -143,9 +144,7 @@ export function SettingsDialog() {
                 with the text ready to place in ChatGPT or Gemini.
               </p>
             </div>
-            <kbd className="settings-shortcut">
-              {quickCaptureStatus?.shortcut.display ?? "⌘ ⇧ P"}
-            </kbd>
+            <ShortcutRecorder />
           </div>
 
           <div aria-live="polite" className="quick-capture-checks">

@@ -26,6 +26,8 @@ define_app_commands!(
     "request_quick_capture_permission" => request_quick_capture_permission,
     "open_quick_capture_settings" => open_quick_capture_settings,
     "retry_quick_capture_registration" => retry_quick_capture_registration,
+    "set_quick_capture_shortcut" => set_quick_capture_shortcut,
+    "reset_quick_capture_shortcut" => reset_quick_capture_shortcut,
     "read_clipboard_text" => read_clipboard_text,
     "list_quick_capture_outcomes" => list_quick_capture_outcomes,
     "acknowledge_quick_capture_outcomes" => acknowledge_quick_capture_outcomes,

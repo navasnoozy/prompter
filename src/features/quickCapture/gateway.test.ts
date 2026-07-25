@@ -13,7 +13,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 const validStatus = {
-  version: 2 as const,
+  version: 3 as const,
   shortcut: {
     accelerator: "CommandOrControl+Shift+P",
     display: "⌘ ⇧ P",
@@ -47,7 +47,7 @@ describe("Quick Capture gateway", () => {
   it("lists every valid pending outcome without destructive acknowledgement", async () => {
     const outcome = {
       kind: "success",
-      version: 2,
+      version: 3,
       requestId: "capture-4",
       text: "Captured",
       warnings: [],
@@ -88,13 +88,13 @@ describe("Quick Capture gateway", () => {
     );
 
     nativeHandler?.({ payload: { version: 1, requestId: "bad" } });
-    nativeHandler?.({ payload: { version: 2, requestId: "capture-5" } });
+    nativeHandler?.({ payload: { version: 3, requestId: "capture-5" } });
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
   it("shows only a stable safe message for unknown native errors", () => {
     expect(normalizeQuickCaptureError("sensitive internal details")).toEqual({
-      version: 2,
+      version: 3,
       code: "internal",
       message: "Quick Capture could not finish. Please try again.",
     });

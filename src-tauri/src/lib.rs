@@ -23,7 +23,8 @@ use provider::{
 use quick_capture::{
     acknowledge_quick_capture_outcomes, get_quick_capture_status, list_quick_capture_outcomes,
     open_quick_capture_settings, read_clipboard_text, request_quick_capture_permission,
-    retry_quick_capture_registration, QuickCaptureCoordinator,
+    reset_quick_capture_shortcut, retry_quick_capture_registration, set_quick_capture_shortcut,
+    QuickCaptureCoordinator,
 };
 use settings::{load_settings, save_settings, SettingsCoordinator};
 
