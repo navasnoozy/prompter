@@ -149,7 +149,10 @@ mod tests {
             written_by_the_frontend.accelerator,
             written_by_a_human.accelerator
         );
-        assert_eq!(written_by_the_frontend.shortcut, written_by_a_human.shortcut);
+        assert_eq!(
+            written_by_the_frontend.shortcut,
+            written_by_a_human.shortcut
+        );
     }
 
     #[test]
