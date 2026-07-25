@@ -18,10 +18,14 @@ const GEMINI_EDITOR_SELECTORS: &[&str] = &[
     "textarea",
 ];
 
-/// Each address-bar-less pane receives only its own provider and observed
-/// sign-in hosts. These lists intentionally remain separate so one provider
-/// never inherits another provider's credential origins.
-const CHATGPT_NAVIGATION_HOSTS: &[&str] = &[
+/// Hosts whose new windows belong inside the pane rather than in the user's
+/// browser: the provider itself and its observed sign-in origins, which must
+/// land in the same cookie store as the page that opened them. The lists stay
+/// separate so one provider never inherits another's credential origins.
+///
+/// This does not restrict what a pane may load — see `on_navigation` in
+/// `commands.rs` for why no such restriction is possible.
+const CHATGPT_IN_PANE_WINDOW_HOSTS: &[&str] = &[
     "chatgpt.com",
     "auth.openai.com",
     "accounts.google.com",
@@ -29,7 +33,7 @@ const CHATGPT_NAVIGATION_HOSTS: &[&str] = &[
     "login.microsoftonline.com",
     "login.live.com",
 ];
-const GEMINI_NAVIGATION_HOSTS: &[&str] = &["gemini.google.com", "accounts.google.com"];
+const GEMINI_IN_PANE_WINDOW_HOSTS: &[&str] = &["gemini.google.com", "accounts.google.com"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -68,14 +72,14 @@ impl Provider {
             && url.host_str() == Some(self.config().expected_fill_host)
     }
 
-    fn navigation_hosts(self) -> &'static [&'static str] {
+    fn in_pane_window_hosts(self) -> &'static [&'static str] {
         match self {
-            Self::Chatgpt => CHATGPT_NAVIGATION_HOSTS,
-            Self::Gemini => GEMINI_NAVIGATION_HOSTS,
+            Self::Chatgpt => CHATGPT_IN_PANE_WINDOW_HOSTS,
+            Self::Gemini => GEMINI_IN_PANE_WINDOW_HOSTS,
         }
     }
 
-    pub(crate) fn accepts_navigation_url(self, url: &Url) -> bool {
+    pub(crate) fn keeps_new_window_in_pane(self, url: &Url) -> bool {
         if url.scheme() != "https" || url.port_or_known_default() != Some(443) {
             return false;
         }
@@ -83,7 +87,7 @@ impl Provider {
             return false;
         };
 
-        self.navigation_hosts().contains(&host)
+        self.in_pane_window_hosts().contains(&host)
     }
 }
 
@@ -167,9 +171,13 @@ mod tests {
             .accepts_fill_url(&Url::parse("https://gemini.google.com:8443/app").unwrap()));
     }
 
+    /// Decides which user-opened new windows stay in the pane (provider and
+    /// sign-in hosts, so the session lands in the pane's cookie store) and
+    /// which are handed to the default browser. It does not gate what the
+    /// pane may load — see the `on_navigation` hook for why it cannot.
     #[test]
-    fn navigation_policy_limits_the_pane_to_provider_and_auth_hosts() {
-        let allowed = [
+    fn new_window_policy_keeps_provider_and_auth_hosts_in_the_pane() {
+        let kept_in_pane = [
             (Provider::Chatgpt, "https://chatgpt.com/c/example"),
             (Provider::Chatgpt, "https://auth.openai.com/authorize"),
             (Provider::Chatgpt, "https://accounts.google.com/signin"),
@@ -177,14 +185,14 @@ mod tests {
             (Provider::Gemini, "https://gemini.google.com/app"),
             (Provider::Gemini, "https://accounts.google.com/signin"),
         ];
-        for (provider, url) in allowed {
+        for (provider, url) in kept_in_pane {
             assert!(
-                provider.accepts_navigation_url(&Url::parse(url).unwrap()),
-                "{url} should be allowed in the {provider:?} pane"
+                provider.keeps_new_window_in_pane(&Url::parse(url).unwrap()),
+                "a {provider:?} new window for {url} should stay in the pane"
             );
         }
 
-        let denied = [
+        let handed_to_browser = [
             (Provider::Chatgpt, "https://example.com/"),
             (Provider::Chatgpt, "https://evil-chatgpt.com/"),
             (Provider::Chatgpt, "https://chatgpt.com.evil.com/"),
@@ -204,10 +212,10 @@ mod tests {
             ),
             (Provider::Gemini, "https://notgoogle.com/"),
         ];
-        for (provider, url) in denied {
+        for (provider, url) in handed_to_browser {
             assert!(
-                !provider.accepts_navigation_url(&Url::parse(url).unwrap()),
-                "{url} must not be allowed in the {provider:?} pane"
+                !provider.keeps_new_window_in_pane(&Url::parse(url).unwrap()),
+                "a {provider:?} new window for {url} must go to the default browser"
             );
         }
     }

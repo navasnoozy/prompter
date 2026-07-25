@@ -3,7 +3,7 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-use log::{debug, warn};
+use log::{debug, info, warn};
 use serde::Serialize;
 use tauri::{
     webview::{NewWindowResponse, WebviewBuilder},
@@ -260,21 +260,38 @@ pub(crate) async fn show_provider_webview(
                 return false;
             }
 
-            // WebKit's policy hook fires for every frame, so this also sees
-            // iframe loads: sign-in widgets, and the about:blank documents
-            // provider pages create for themselves.
-            if url.as_str() == "about:blank" || provider.accepts_navigation_url(url) {
-                return true;
-            }
-
-            // Links the pane can't display (external references in AI
-            // responses, Terms of Service, documentation) are handed to the
-            // user's default browser instead of being silently swallowed.
-            open_url_externally(&bridge_app, url);
-            false
+            // Everything else loads in the pane, exactly as it would in a
+            // browser tab.
+            //
+            // This hook cannot police navigation, and must not try. WebKit
+            // consults it for *every* WKNavigationAction, and wry forwards
+            // only the URL string (wry 0.55.1 wkwebview/navigation.rs) — it
+            // drops `targetFrame.isMainFrame` and `navigationType`. So a page
+            // loading its own iframe (Google's app-switcher widget, sign-in
+            // frames, embedded viewers) is indistinguishable here from the
+            // user clicking a link. Judging one as the other is what sent
+            // Gemini's `ogs.google.com` widget to the default browser on
+            // every launch.
+            //
+            // Placement safety does not rest on this hook and never did:
+            // `fill_prompt.js` re-verifies protocol/host/port in-page at
+            // every step, placement requires the current navigation
+            // generation, and KVO `is_loading` holds it while the main frame
+            // loads. User-initiated new windows are still handed off below,
+            // where macOS guarantees the gesture we lack here.
+            true
         })
+        // Unlike `on_navigation`, this hook carries the signal that one
+        // lacks. It is backed by `WKUIDelegate` `createWebViewWithConfiguration:`,
+        // which fires only for `window.open` and `target="_blank"` — and
+        // WebKit suppresses those without a user gesture, because wry leaves
+        // `javaScriptCanOpenWindowsAutomatically` at its default of NO. So
+        // reaching here means the user clicked something that asked for a new
+        // window, which is exactly when handing off is correct.
         .on_new_window(move |url, _| {
-            if provider.accepts_navigation_url(&url) {
+            // Sign-in flows open this way. Keep them in the pane so the
+            // session lands in the same cookie store the provider page uses.
+            if provider.keeps_new_window_in_pane(&url) {
                 if let Some(webview) = popup_app.get_webview(&popup_label) {
                     if let Err(error) = webview.navigate(url) {
                         warn!(
@@ -474,21 +491,30 @@ fn provider_fill_script(
     Ok(format!("void ({FILL_PROMPT_SOURCE})({input_json});"))
 }
 
-/// Hands a URL the embedded pane may not display to the user's default
-/// browser. Content is never logged; only failure reasons are.
+/// Hands a user-requested new window to the default browser. Only the scheme
+/// and host are ever logged: paths and query strings routinely carry session
+/// tokens, so the full URL never reaches the log file.
 fn open_url_externally(app: &AppHandle, url: &Url) {
     // Allow http:// and https:// to open in the user's default browser.
     // Block javascript:, data:, file:, and other dangerous schemes that
     // could execute code or access local files outside the sandbox.
     if !matches!(url.scheme(), "https" | "http") {
-        // Routine: provider pages load about:/blob: subframes on every visit.
         debug!(
             target: "prompter::provider",
-            "event=external_navigation_blocked scheme={}",
+            "event=external_open_skipped scheme={}",
             url.scheme()
         );
         return;
     }
+
+    // Handing control to another application is a visible, user-affecting
+    // hand-off, so it is recorded at info. Its absence is diagnostic too: a
+    // browser window that opens with no line here did not come from Prompter.
+    info!(
+        target: "prompter::provider",
+        "event=external_open host={}",
+        url.host_str().unwrap_or("unknown")
+    );
 
     let target = url.to_string();
     let dispatched = app.run_on_main_thread(move || {
