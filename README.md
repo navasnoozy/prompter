@@ -32,6 +32,8 @@ Quick Capture requires macOS 10.15 or newer and Prompter to be allowed under **S
 
 Closing the main window keeps Prompter running so the shortcut remains available. Use `Command + Q` to quit completely.
 
+The Quick Capture shortcut is recorded in Settings and stored by the native layer, so it is registered at startup without waiting for the webview. Every accelerator — recorded or read back from disk — is re-parsed and must include `Command`, `Option`, or `Control`; Shift alone would intercept ordinary typing system-wide. A combination another application already owns is refused and the previous shortcut is restored, so a rejected change never leaves Prompter without a working one.
+
 **Launch at Login** is optional and disabled by default. When enabled from Prompter Settings, the app starts with its main window hidden, registers Quick Capture, and waits for the user. Provider WebViews are loaded only after the window is shown. For a stable login-item path, move `Prompter.app` to Applications before enabling it.
 
 ## Run locally
@@ -73,7 +75,7 @@ The code is organized by responsibility. Frontend state lives in per-feature zus
 - `src-tauri/src/provider` is split by concern: `config` (providers + navigation allowlists), `geometry` (bounds + derived title-bar offset), `bridge` (`prompter://` response correlation), `commands` (webview commands), `error` (the typed command error contract).
 - `src-tauri/src/provider/navigation.rs` owns the versioned, generation-ordered browser-navigation state and command contract. It emits capability/loading booleans only—never provider URLs or titles.
 - `src-tauri/src/platform` isolates native window and provider WebView behavior, including typed WKWebView navigation and KVO observation of loading/back/forward state so SPA history, failures, and stopped loads remain authoritative.
-- `src-tauri/src/quick_capture` separates shortcut coordination, typed outcomes, direct Accessibility selection reads, guarded pasteboard fallback transactions, and macOS permission APIs.
+- `src-tauri/src/quick_capture` separates shortcut coordination, accelerator parsing and rendering, typed outcomes, direct Accessibility selection reads, guarded pasteboard fallback transactions, and macOS permission APIs.
 - `src-tauri/src/settings.rs` owns the fixed settings path, key allowlist, size limit, serialization lock, and atomic sync-and-rename writes; the frontend has no generic filesystem-store capability.
 
 Quick Capture logs registration state, outcome codes, and timings to the standard Tauri application log directory. Selected text and clipboard contents are never logged.
