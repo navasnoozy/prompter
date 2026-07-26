@@ -2,11 +2,17 @@ import { invoke } from "@tauri-apps/api/core";
 import { publishNotice } from "./notices";
 import { SettingsLoadResponseSchema } from "./schemas";
 
+/**
+ * Mirrors `ALLOWED_KEYS` in `src-tauri/src/settings.rs`. A key missing there is
+ * silently dropped by `save_settings`, so the two lists move together.
+ */
 export const SETTINGS_KEYS = {
   presets: "presets",
   selectedInstructionId: "selectedInstructionId",
   theme: "theme",
   provider: "provider",
+  newChatMode: "newChatMode",
+  newChatOverrides: "newChatOverrides",
 } as const;
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS];

@@ -27,6 +27,7 @@ vi.mock("./gateway", async (importOriginal) => {
     providerGateway: {
       ...original.providerGateway,
       controlNavigation: vi.fn(),
+      openNewChat: vi.fn(),
     },
   };
 });
@@ -57,13 +58,14 @@ describe("ProviderNavigationCapsule", () => {
     vi.mocked(providerGateway.controlNavigation).mockResolvedValue(
       navigation({ revision: 4 }),
     );
+    vi.mocked(providerGateway.openNewChat).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it("always shows all three controls", () => {
+  it("always shows every control", () => {
     render(
       <ProviderNavigationCapsule
         isPlacing={false}
@@ -78,6 +80,52 @@ describe("ProviderNavigationCapsule", () => {
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go forward" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reload page" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Start a new ChatGPT chat" }),
+    ).toBeTruthy();
+  });
+
+  it("starts a new chat at the address saved for the provider", async () => {
+    initializeProviderStore("chatgpt", "auto", {
+      chatgpt: { url: "https://chatgpt.com/new" },
+    });
+    render(
+      <ProviderNavigationCapsule
+        isPlacing={false}
+        navigation={navigation()}
+        provider="chatgpt"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start a new ChatGPT chat" }),
+    );
+
+    await waitFor(() =>
+      expect(providerGateway.openNewChat).toHaveBeenCalledWith(
+        "chatgpt",
+        "https://chatgpt.com/new",
+      ),
+    );
+    expect(providerGateway.openNewChat).toHaveBeenCalledOnce();
+  });
+
+  it("refuses to start a new chat over a page that is still loading", () => {
+    render(
+      <ProviderNavigationCapsule
+        isPlacing={false}
+        navigation={navigation({ isLoading: true })}
+        provider="chatgpt"
+      />,
+    );
+
+    const newChat = screen.getByRole("button", {
+      name: "Start a new ChatGPT chat",
+    });
+    expect(newChat.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(newChat);
+
+    expect(providerGateway.openNewChat).not.toHaveBeenCalled();
   });
 
   it.each([

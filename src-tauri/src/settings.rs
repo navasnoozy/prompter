@@ -15,7 +15,14 @@ use tauri::{AppHandle, Manager, Runtime, State};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const MAX_SETTINGS_BYTES: u64 = 16 * 1024 * 1024;
-const ALLOWED_KEYS: [&str; 4] = ["presets", "selectedInstructionId", "theme", "provider"];
+const ALLOWED_KEYS: [&str; 6] = [
+    "presets",
+    "selectedInstructionId",
+    "theme",
+    "provider",
+    "newChatMode",
+    "newChatOverrides",
+];
 
 /// The Quick Capture accelerator, owned by the Rust side.
 pub(crate) const QUICK_CAPTURE_SHORTCUT_KEY: &str = "quickCaptureShortcut";
@@ -414,6 +421,20 @@ mod tests {
 
     #[test]
     fn settings_key_allowlist_is_exact() {
+        // Spelled out rather than derived, so widening the webview's write
+        // surface is a deliberate edit here and not a side effect elsewhere.
+        // The frontend mirror of this list lives in `SETTINGS_KEYS`.
+        assert_eq!(
+            ALLOWED_KEYS,
+            [
+                "presets",
+                "selectedInstructionId",
+                "theme",
+                "provider",
+                "newChatMode",
+                "newChatOverrides",
+            ]
+        );
         for key in ALLOWED_KEYS {
             assert!(is_allowed_key(key));
         }

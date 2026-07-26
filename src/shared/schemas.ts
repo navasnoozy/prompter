@@ -18,6 +18,7 @@ export const ProviderErrorCodeSchema = z.enum([
   "wrong_host",
   "editor_not_found",
   "editor_update_failed",
+  "new_chat_unavailable",
   "missing_instruction",
   "missing_text",
   "prompt_too_large",

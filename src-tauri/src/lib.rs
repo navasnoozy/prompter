@@ -16,9 +16,9 @@ use app_lifecycle::{
     get_app_lifecycle_status, set_launch_at_login, ActivationSource, AppLifecycleCoordinator,
 };
 use provider::{
-    control_provider_navigation, get_provider_navigation_state, place_prompt,
-    resize_provider_webview, set_provider_visibility, show_provider_webview, ProviderLifecycle,
-    ProviderNavigationCoordinator,
+    control_provider_navigation, get_provider_navigation_state, open_provider_new_chat,
+    place_prompt, resize_provider_webview, set_provider_visibility, show_provider_webview,
+    ProviderLifecycle, ProviderNavigationCoordinator,
 };
 use quick_capture::{
     acknowledge_quick_capture_outcomes, get_quick_capture_status, list_quick_capture_outcomes,

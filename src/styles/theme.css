@@ -94,3 +94,14 @@
   .workspace { padding: 10px 10px 8px; }
   .bottom-dock { grid-template-columns: 1fr; }
 }
+.theme-dark .new-chat-settings select { color: var(--text-primary); border-color: var(--border-input); background: var(--surface-inset); }
+.theme-dark .new-chat-settings select:focus { border-color: var(--accent-selected-border); }
+.theme-dark .new-chat-mode-detail,
+.theme-dark .new-chat-advanced > p,
+.theme-dark .new-chat-help { color: var(--text-secondary); }
+.theme-dark .new-chat-advanced { border-color: var(--border-preference); background: var(--surface-inset); }
+.theme-dark .new-chat-advanced > summary { color: var(--text-label); }
+.theme-dark .new-chat-provider { border-color: var(--border); }
+.theme-dark .new-chat-provider > strong { color: var(--text-heading); }
+.theme-dark .new-chat-note.ok { color: #8fd0a5; }
+.theme-dark .new-chat-note.error { color: #f0a0b0; }

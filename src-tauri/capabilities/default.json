@@ -17,6 +17,7 @@
     "allow-resize-provider-webview",
     "allow-set-provider-visibility",
     "allow-place-prompt",
+    "allow-open-provider-new-chat",
     "allow-get-quick-capture-status",
     "allow-request-quick-capture-permission",
     "allow-open-quick-capture-settings",

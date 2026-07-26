@@ -8,7 +8,10 @@ import {
   type ProviderNavigationAction,
   type ProviderNavigationState,
 } from "./model";
+import { openNewChat } from "./placement";
 import { useProviderStore } from "./store";
+
+type CapsuleAction = ProviderNavigationAction | "new-chat";
 
 type ProviderNavigationCapsuleProps = {
   isPlacing: boolean;
@@ -21,8 +24,9 @@ export function ProviderNavigationCapsule({
   navigation,
   provider,
 }: ProviderNavigationCapsuleProps) {
-  const [pendingAction, setPendingAction] =
-    useState<ProviderNavigationAction | null>(null);
+  const [pendingAction, setPendingAction] = useState<CapsuleAction | null>(
+    null,
+  );
 
   if (!navigation.available) return null;
 
@@ -47,6 +51,13 @@ export function ProviderNavigationCapsule({
     (navigation.canGoForward
       ? "Go forward"
       : "No page to go forward to");
+  // Reloading mid-load would abandon the page the user is already waiting for.
+  const newChatDisabled = controlsLocked || navigation.isLoading;
+  const newChatTitle =
+    lockedTitle ??
+    (navigation.isLoading
+      ? "Wait for the page to finish loading"
+      : "Start a new chat");
 
   const runAction = async (
     action: ProviderNavigationAction,
@@ -68,6 +79,19 @@ export function ProviderNavigationCapsule({
       publishNotice("error", normalizeProviderError(error).message);
     } finally {
       setPendingAction((current) => (current === action ? null : current));
+    }
+  };
+
+  const startNewChat = async () => {
+    if (newChatDisabled || pendingAction !== null) return;
+
+    setPendingAction("new-chat");
+    try {
+      await openNewChat();
+    } finally {
+      setPendingAction((current) =>
+        current === "new-chat" ? null : current,
+      );
     }
   };
 
@@ -107,6 +131,16 @@ export function ProviderNavigationCapsule({
         type="button"
       >
         <Icon name={navigation.isLoading ? "stop" : "reload"} size={16} />
+      </button>
+      <button
+        aria-disabled={newChatDisabled}
+        aria-label={`Start a new ${providerLabel} chat`}
+        className="browser-navigation-button"
+        onClick={() => void startNewChat()}
+        title={newChatTitle}
+        type="button"
+      >
+        <Icon name="plus" size={16} />
       </button>
     </nav>
   );

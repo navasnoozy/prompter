@@ -4,7 +4,7 @@ use std::{
 };
 
 use log::{debug, info, warn};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{
     webview::{NewWindowResponse, WebviewBuilder},
     AppHandle, Manager, Rect, State, Url, WebviewUrl,
@@ -17,6 +17,7 @@ use super::{
     error::{ProviderCommandError, ProviderErrorCode},
     geometry::{self, ProviderBounds},
     navigation,
+    new_chat::{self, NewChatMatcher},
 };
 use crate::{platform, prompt::PromptInput, MAIN_WINDOW_LABEL};
 
@@ -119,6 +120,16 @@ impl ProviderLifecycle {
         }
     }
 
+    /// Drops whatever placement is in flight, whichever request it is. Used
+    /// when the page underneath it is about to be replaced deliberately.
+    fn abandon_pending_request(&self, provider: Provider) {
+        if let Ok(mut states) = self.operation_states.lock() {
+            if let Some(state) = states.get_mut(&provider) {
+                state.pending_request = None;
+            }
+        }
+    }
+
     pub(super) fn begin_navigation_generation(
         &self,
         provider: Provider,
@@ -171,6 +182,27 @@ struct FillScriptInput<'a> {
     selectors: &'static [&'static str],
     expected_host: &'static str,
     prompt: &'a str,
+    /// Present only when this placement should reset the conversation first.
+    new_chat: Option<NewChatScriptInput<'a>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NewChatScriptInput<'a> {
+    selectors: &'static [&'static str],
+    labels: &'static [&'static str],
+    fresh_paths: &'static [&'static str],
+    matcher: Option<&'a NewChatMatcher>,
+}
+
+/// Asks a placement to open a blank conversation before filling the prompt.
+/// The optional matcher describes the provider's "New chat" control for pages
+/// whose built-in selectors have aged out.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct NewChatRequest {
+    #[serde(default)]
+    matcher: Option<NewChatMatcher>,
 }
 
 /// Tears a provider pane down in the order that keeps state consistent: retire
@@ -407,6 +439,7 @@ pub(crate) async fn place_prompt(
     provider: Provider,
     composition: PromptInput,
     request_id: String,
+    new_chat: Option<NewChatRequest>,
 ) -> Result<(), ProviderCommandError> {
     let _creation_guard = lifecycle.lock_creation().await;
     let prompt = composition.compose()?;
@@ -444,7 +477,24 @@ pub(crate) async fn place_prompt(
         ));
     }
 
-    let script = provider_fill_script(provider, &request_id, &prompt)?;
+    // Sanitize before the pane is touched: a rejected matcher must fail the
+    // command outright rather than leave a half-reset conversation behind.
+    let sanitized_matcher = new_chat
+        .as_ref()
+        .and_then(|request| request.matcher.as_ref())
+        .map(NewChatMatcher::sanitized)
+        .transpose()?;
+    let script = provider_fill_script(
+        provider,
+        &request_id,
+        &prompt,
+        new_chat.is_some().then_some(NewChatScriptInput {
+            selectors: config.new_chat_selectors,
+            labels: config.new_chat_labels,
+            fresh_paths: config.fresh_chat_paths,
+            matcher: sanitized_matcher.as_ref(),
+        }),
+    )?;
     webview
         .show()
         .and_then(|_| webview.set_focus())
@@ -464,10 +514,66 @@ pub(crate) async fn place_prompt(
     Ok(())
 }
 
+/// Resets a pane to a blank conversation by navigating to the provider's
+/// new-chat address.
+///
+/// This is the mechanism that always works and never wins on speed: it
+/// reloads the whole single-page app. Callers reach for it when the in-page
+/// control cannot be found, and users can reach for it directly. The pane
+/// keeps its cookie store, so the session survives the reload.
+#[tauri::command]
+pub(crate) async fn open_provider_new_chat(
+    app: AppHandle,
+    lifecycle: State<'_, ProviderLifecycle>,
+    provider: Provider,
+    url: Option<String>,
+) -> Result<(), ProviderCommandError> {
+    let _creation_guard = lifecycle.lock_creation().await;
+    let config = provider.config();
+    let target = new_chat::resolve_new_chat_url(provider, url.as_deref())?;
+
+    if navigation::current_provider_navigation_generation(&app, provider)?.is_none() {
+        return Err(ProviderCommandError::new(
+            ProviderErrorCode::NavigationBlocked,
+            format!(
+                "The {} browser is still initializing. Reopen it and try again.",
+                config.display_name
+            ),
+        ));
+    }
+    let webview = app.get_webview(config.webview_label).ok_or_else(|| {
+        ProviderCommandError::new(
+            ProviderErrorCode::WebviewMissing,
+            format!("The {} panel is still loading.", config.display_name),
+        )
+    })?;
+
+    // The document about to be replaced may still be running a fill script.
+    // Its `prompter://` answer can never arrive, so the placement is dropped
+    // now rather than left to time out.
+    lifecycle.abandon_pending_request(provider);
+
+    webview.navigate(target).map_err(|error| {
+        operation_failed(format!(
+            "Could not open a new {} chat: {error}",
+            config.display_name
+        ))
+    })?;
+
+    info!(
+        target: "prompter::provider",
+        "event=new_chat_navigated provider={} custom_url={}",
+        config.id,
+        url.is_some()
+    );
+    Ok(())
+}
+
 fn provider_fill_script(
     provider: Provider,
     request_id: &str,
     prompt: &str,
+    new_chat: Option<NewChatScriptInput<'_>>,
 ) -> Result<String, ProviderCommandError> {
     if !is_valid_request_id(request_id) {
         return Err(ProviderCommandError::new(
@@ -483,6 +589,7 @@ fn provider_fill_script(
         selectors: config.editor_selectors,
         expected_host: config.expected_fill_host,
         prompt,
+        new_chat,
     };
     let input_json = serde_json::to_string(&input).map_err(|error| {
         operation_failed(format!("Could not prepare the provider prompt: {error}"))
@@ -535,7 +642,20 @@ fn open_url_externally(app: &AppHandle, url: &Url) {
 
 #[cfg(test)]
 mod tests {
-    use super::{provider_fill_script, Provider, ProviderErrorCode, ProviderLifecycle};
+    use super::{
+        provider_fill_script, NewChatMatcher, NewChatScriptInput, Provider, ProviderErrorCode,
+        ProviderLifecycle,
+    };
+
+    fn new_chat_input(provider: Provider, matcher: Option<&NewChatMatcher>) -> NewChatScriptInput {
+        let config = provider.config();
+        NewChatScriptInput {
+            selectors: config.new_chat_selectors,
+            labels: config.new_chat_labels,
+            fresh_paths: config.fresh_chat_paths,
+            matcher,
+        }
+    }
 
     /// Puts a provider in the state a loaded, idle pane has: generation 7 with
     /// its initial load finished.
@@ -554,6 +674,7 @@ mod tests {
             Provider::Chatgpt,
             "request-1",
             "A quote: \"hello\"\nA slash: \\",
+            None,
         )
         .unwrap();
 
@@ -569,8 +690,67 @@ mod tests {
 
     #[test]
     fn fill_script_rejects_invalid_request_ids() {
-        assert!(provider_fill_script(Provider::Chatgpt, "", "prompt").is_err());
-        assert!(provider_fill_script(Provider::Chatgpt, "bad\nid", "prompt").is_err());
+        assert!(provider_fill_script(Provider::Chatgpt, "", "prompt", None).is_err());
+        assert!(provider_fill_script(Provider::Chatgpt, "bad\nid", "prompt", None).is_err());
+    }
+
+    /// Placement without a reset must not carry any new-chat instructions into
+    /// the page: an accidental `newChat` payload would clear a conversation the
+    /// user meant to continue.
+    #[test]
+    fn fill_script_omits_the_reset_step_unless_it_was_requested() {
+        let script = provider_fill_script(Provider::Chatgpt, "request-1", "prompt", None).unwrap();
+        assert!(script.contains("\"newChat\":null"));
+        assert!(!script.contains("create-new-chat-button"));
+    }
+
+    #[test]
+    fn fill_script_carries_reset_signals_as_data_not_code() {
+        let matcher = NewChatMatcher {
+            test_id: Some("create-new-chat-button".into()),
+            label: Some("New chat".into()),
+            href: Some("/".into()),
+            attributes: Vec::new(),
+        };
+        let script = provider_fill_script(
+            Provider::Chatgpt,
+            "request-1",
+            "prompt",
+            Some(new_chat_input(Provider::Chatgpt, Some(&matcher))),
+        )
+        .unwrap();
+
+        // The matcher travels inside the JSON argument, so a value containing
+        // markup or quotes can never become script text.
+        assert!(script.contains("\"testId\":\"create-new-chat-button\""));
+        assert!(script.contains("\"freshPaths\":[\"/\"]"));
+        assert!(script.contains("\"labels\":[\"new chat\"]"));
+
+        // A matcher that tries to break out of its own string literal must
+        // survive as an inert value. The script is `void (SOURCE)(JSON);`, and
+        // JSON never contains `)(`, so the last one is the argument boundary.
+        let hostile_label = "\");alert(1);//";
+        let hostile = NewChatMatcher {
+            label: Some(hostile_label.into()),
+            ..NewChatMatcher::default()
+        };
+        let escaped = provider_fill_script(
+            Provider::Gemini,
+            "request-2",
+            "prompt",
+            Some(new_chat_input(Provider::Gemini, Some(&hostile))),
+        )
+        .unwrap();
+
+        let argument = escaped
+            .rsplit_once(")(")
+            .expect("the script passes its input as one argument")
+            .1
+            .strip_suffix(");")
+            .expect("the script call is terminated");
+        let parsed: serde_json::Value =
+            serde_json::from_str(argument).expect("the argument must be valid JSON");
+        assert_eq!(parsed["newChat"]["matcher"]["label"], hostile_label);
     }
 
     #[test]

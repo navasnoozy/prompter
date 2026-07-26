@@ -16,10 +16,12 @@ import {
   type ProviderNavigationAction,
   type ProviderNavigationState,
 } from "./model";
+import type { NewChatMatcher } from "./newChat";
 
 export const TAURI_COMMANDS = {
   controlProviderNavigation: "control_provider_navigation",
   getProviderNavigationState: "get_provider_navigation_state",
+  openProviderNewChat: "open_provider_new_chat",
   placePrompt: "place_prompt",
   resizeProviderWebview: "resize_provider_webview",
   setProviderVisibility: "set_provider_visibility",
@@ -113,11 +115,22 @@ export const providerGateway = {
     provider: Provider,
     composition: PromptComposition,
     requestId: string,
+    newChat?: { matcher?: NewChatMatcher },
   ): Promise<void> {
     return invoke(TAURI_COMMANDS.placePrompt, {
       provider,
       composition,
       requestId,
+      // Absent rather than null: the native argument is an `Option`, and
+      // omitting it is what asks for "fill the conversation that is open".
+      ...(newChat ? { newChat } : {}),
+    });
+  },
+
+  openNewChat(provider: Provider, url?: string): Promise<void> {
+    return invoke(TAURI_COMMANDS.openProviderNewChat, {
+      provider,
+      ...(url ? { url } : {}),
     });
   },
 

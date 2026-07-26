@@ -5,6 +5,7 @@
   selectors,
   expectedHost,
   prompt,
+  newChat,
 }) {
   const generationKey = "__PROMPTER_FILL_GENERATION__";
   const generation = (Number(window[generationKey]) || 0) + 1;
@@ -18,7 +19,7 @@
   const pause = (milliseconds) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-  const isUsableEditor = (element) => {
+  const isVisibleElement = (element) => {
     if (!(element instanceof HTMLElement) || !element.isConnected) return false;
     if (element.closest("[hidden], [aria-hidden='true']")) return false;
 
@@ -36,10 +37,13 @@
       }
     }
 
-    const hasVisibleRect = Array.from(element.getClientRects()).some(
+    return Array.from(element.getClientRects()).some(
       (rect) => rect.width > 0 && rect.height > 0,
     );
-    if (!hasVisibleRect) return false;
+  };
+
+  const isUsableEditor = (element) => {
+    if (!isVisibleElement(element)) return false;
 
     if (
       element instanceof HTMLTextAreaElement ||
@@ -85,8 +89,257 @@
     return true;
   };
 
+  // Confidence weights for identifying the provider's "New chat" control.
+  //
+  // The ordering encodes how well each signal survives a redesign, not how
+  // convenient it is to read. A test id is written for automation and is worth
+  // an immediate accept. An explicit `aria-label` is close behind. Incidental
+  // text is weaker than both, and deliberately below ACCEPT on its own: an
+  // untitled conversation in the sidebar is also called "New chat", and
+  // clicking that would silently reopen an old thread — the exact failure this
+  // whole feature exists to prevent. Text therefore has to be corroborated by
+  // something structural before anything is clicked.
+  //
+  // ACCEPT sits above text plus a single attribute for that same reason: a
+  // sidebar row can easily share one generic attribute with the real control,
+  // so a lone attribute is not allowed to be the corroboration that text needs.
+  const SCORE = {
+    testId: 100,
+    ariaLabel: 60,
+    text: 40,
+    knownSelector: 30,
+    href: 20,
+    attribute: 10,
+  };
+  const ATTRIBUTE_SCORE_CAP = 30;
+  const ACCEPT_SCORE = 60;
+  const MAX_CANDIDATES = 600;
+  const MAX_NAME_LENGTH = 120;
+  const NEW_CHAT_RESET_TIMEOUT_MS = 4000;
+  const NEW_CHAT_SETTLE_TIMEOUT_MS = 1500;
+  const CANDIDATE_SELECTOR =
+    "a[href], button, [role='button'], [data-testid], [data-test-id], [aria-label]";
+
+  const normalizeName = (value) =>
+    String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, MAX_NAME_LENGTH)
+      .toLowerCase();
+
+  // Text as a person reads it: keyboard hints, icons, and screen-reader-only
+  // decoration are skipped so ChatGPT's "New chat ⇧⌘O" row reduces to the
+  // name the user would have pointed at.
+  const visibleTextOf = (element) => {
+    let text = "";
+    const walk = (node) => {
+      if (text.length > MAX_NAME_LENGTH) return;
+      if (node.nodeType === 3) {
+        text += node.nodeValue || "";
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      if (node.tagName === "KBD") return;
+      if (node.getAttribute("aria-hidden") === "true") return;
+      for (let index = 0; index < node.childNodes.length; index += 1) {
+        walk(node.childNodes[index]);
+      }
+    };
+    walk(element);
+    return normalizeName(text);
+  };
+
+  const attributeOf = (element, name) => {
+    const value = element.getAttribute(name);
+    return value === null ? null : value.trim();
+  };
+
+  const testIdOf = (element) =>
+    attributeOf(element, "data-testid") ?? attributeOf(element, "data-test-id");
+
+  // Compared as resolved paths so a matcher recorded as `/` still matches an
+  // href the page later renders absolutely.
+  const hrefPathOf = (element) => {
+    const raw = attributeOf(element, "href");
+    if (raw === null) return null;
+    try {
+      return new URL(raw, window.location.href).pathname;
+    } catch {
+      return raw;
+    }
+  };
+
+  const expectedHrefPath = (value) => {
+    try {
+      return new URL(value, window.location.href).pathname;
+    } catch {
+      return value;
+    }
+  };
+
+  const runNewChatStep = async () => {
+    const matcher = newChat.matcher;
+    const expectedLabels = new Set(
+      (newChat.labels || []).map(normalizeName).filter(Boolean),
+    );
+    if (matcher && matcher.label) expectedLabels.add(normalizeName(matcher.label));
+
+    const freshPaths = new Set(newChat.freshPaths || []);
+    // Google addresses a multi-account session as `/u/<n>/…`; the account
+    // segment says nothing about whether a conversation is open.
+    const isFreshPath = () => {
+      const path = window.location.pathname.replace(/^\/u\/\d+(?=\/|$)/, "");
+      return freshPaths.has(path || "/");
+    };
+
+    const scoreOf = (element, knownSelectorMatches) => {
+      let score = 0;
+      if (matcher && matcher.testId) {
+        const testId = testIdOf(element);
+        if (testId !== null && testId === matcher.testId) score += SCORE.testId;
+      }
+
+      const ariaLabel = normalizeName(attributeOf(element, "aria-label"));
+      if (ariaLabel && expectedLabels.has(ariaLabel)) {
+        score += SCORE.ariaLabel;
+      } else if (expectedLabels.has(visibleTextOf(element))) {
+        score += SCORE.text;
+      }
+
+      if (knownSelectorMatches.has(element)) score += SCORE.knownSelector;
+
+      if (matcher && matcher.href) {
+        const path = hrefPathOf(element);
+        if (path !== null && path === expectedHrefPath(matcher.href)) {
+          score += SCORE.href;
+        }
+      }
+
+      if (matcher && matcher.attributes && matcher.attributes.length > 0) {
+        let attributeScore = 0;
+        for (const attribute of matcher.attributes) {
+          const actual = attributeOf(element, attribute.name);
+          if (actual !== null && actual === attribute.value) {
+            attributeScore += SCORE.attribute;
+          }
+        }
+        score += Math.min(attributeScore, ATTRIBUTE_SCORE_CAP);
+      }
+
+      return score;
+    };
+
+    const findControl = () => {
+      const knownSelectorMatches = new Set();
+      for (const selector of newChat.selectors || []) {
+        let matches;
+        try {
+          matches = document.querySelectorAll(selector);
+        } catch {
+          // A selector that this engine cannot parse simply contributes no
+          // candidates; the remaining signals still stand on their own.
+          continue;
+        }
+        for (let index = 0; index < matches.length; index += 1) {
+          knownSelectorMatches.add(matches[index]);
+        }
+      }
+
+      const seen = new Set(knownSelectorMatches);
+      const candidates = document.querySelectorAll(CANDIDATE_SELECTOR);
+      for (
+        let index = 0;
+        index < candidates.length && seen.size < MAX_CANDIDATES;
+        index += 1
+      ) {
+        seen.add(candidates[index]);
+      }
+
+      let best = null;
+      let bestScore = 0;
+      for (const candidate of seen) {
+        if (!isVisibleElement(candidate)) continue;
+        if (candidate.getAttribute("aria-disabled") === "true") continue;
+        if (candidate.disabled === true) continue;
+
+        const score = scoreOf(candidate, knownSelectorMatches);
+        if (score > bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+      return bestScore >= ACCEPT_SCORE ? best : null;
+    };
+
+    const editorIsEmpty = () => {
+      const editor = findEditor();
+      if (!editor) return false;
+      const value =
+        editor instanceof HTMLTextAreaElement ||
+        editor instanceof HTMLInputElement
+          ? editor.value
+          : editor.textContent;
+      return String(value || "").trim() === "";
+    };
+
+    // Already blank: clicking would be a no-op, and skipping it avoids
+    // disturbing a page the user may have just opened themselves.
+    if (isFreshPath() && editorIsEmpty()) return true;
+
+    const control = findControl();
+    if (!control) return false;
+
+    control.click();
+
+    // Some frameworks only commit on a full pointer sequence. That is the
+    // exception, so it is tried once, late, rather than on every reset.
+    let retried = false;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < NEW_CHAT_RESET_TIMEOUT_MS) {
+      if (isFreshPath() && editorIsEmpty()) return true;
+      if (!retried && Date.now() - startedAt > NEW_CHAT_RESET_TIMEOUT_MS / 2) {
+        retried = true;
+        if (control.isConnected) {
+          for (const type of ["pointerdown", "mousedown", "mouseup", "click"]) {
+            control.dispatchEvent(
+              new MouseEvent(type, { bubbles: true, cancelable: true }),
+            );
+          }
+        }
+      }
+      await pause(100);
+      if (!isActive() || !isExpectedOrigin()) return false;
+    }
+
+    // The path is what proves the conversation was replaced. An editor that is
+    // still settling is handled by the wait that follows.
+    if (isFreshPath()) {
+      const settleStartedAt = Date.now();
+      while (Date.now() - settleStartedAt < NEW_CHAT_SETTLE_TIMEOUT_MS) {
+        if (editorIsEmpty()) break;
+        await pause(100);
+        if (!isActive() || !isExpectedOrigin()) return false;
+      }
+      return true;
+    }
+    return false;
+  };
+
   try {
     if (!isActive() || rejectWrongOrigin()) return;
+
+    if (newChat) {
+      const reset = await runNewChatStep();
+      if (!isActive() || rejectWrongOrigin()) return;
+      if (!reset) {
+        signal(
+          "error",
+          `Prompter could not start a new ${displayName} chat from the page.`,
+          "new_chat_unavailable",
+        );
+        return;
+      }
+    }
 
     const startedAt = Date.now();
     let editor = findEditor();

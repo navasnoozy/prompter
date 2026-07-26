@@ -9,6 +9,7 @@ Prompter is a macOS-first Tauri 2 companion for rewriting selected text with a u
 - A compact browser control at the top of the pane exposes Back by default and expands to Back, Forward, and Reload (or Stop while loading) on hover or keyboard focus.
 - Prompter sends exactly the before-text instruction, the user's text, and the optional after-text instruction in that order, then places the result into the provider's real input box.
 - Prompter never presses Send. The user reviews and sends the prompt manually.
+- Each placement can start a new provider chat first, so prompts do not pile up in one long conversation. Settings chooses how: **Automatic** clicks the provider's own New chat control and falls back to loading the new-chat address, **Use the button** clicks only, **Open the address** loads only, and **Off** keeps the current conversation. Any route that fails still places the prompt into the open chat and says so, so a prompt is never lost.
 - Placing text writes it into a third-party website; that website may autosave or process editor contents before Send. See [PRIVACY.md](PRIVACY.md).
 - Responses and provider Copy buttons remain inside ChatGPT or Gemini.
 - Before inserting user text, the native layer verifies the exact HTTPS provider origin immediately before dispatch, and the in-page fill routine revalidates it at every mutation checkpoint. Hiding or switching closes a provider WebView only when it has an in-flight fill; otherwise it preserves the hidden session. Navigation always invalidates native request correlation, so a stale fill cannot later report success.
@@ -33,6 +34,8 @@ Quick Capture requires macOS 10.15 or newer and Prompter to be allowed under **S
 Closing the main window keeps Prompter running so the shortcut remains available. Use `Command + Q` to quit completely.
 
 The Quick Capture shortcut is recorded in Settings and stored by the native layer, so it is registered at startup without waiting for the webview. Every accelerator — recorded or read back from disk — is re-parsed and must include `Command`, `Option`, or `Control`; Shift alone would intercept ordinary typing system-wide. A combination another application already owns is refused and the previous shortcut is restored, so a rejected change never leaves Prompter without a working one.
+
+Providers reshape their sidebars without notice, so the New chat target is user-correctable from **Settings → New chat → Advanced** without waiting for a release. The address field accepts any HTTPS URL on that provider's own host — a different host, port, scheme, or embedded credentials are refused in both the frontend and the native layer. The button field takes a DevTools **Copy element** paste: it is parsed into an inert document, never injected as markup, and reduced to a few durable signals (test id, accessible name, path, and whitelisted `data-`/`aria-` attributes). Styling, live state, framework bookkeeping, build-generated ids, and single-conversation permalinks are all discarded, because recording them would either break on the next deploy or teach Prompter to reopen an old thread. In the page, candidates are scored across those signals and clicked only above a threshold that a lone generic attribute cannot reach.
 
 **Launch at Login** is optional and disabled by default. When enabled from Prompter Settings, the app starts with its main window hidden, registers Quick Capture, and waits for the user. Provider WebViews are loaded only after the window is shown. For a stable login-item path, move `Prompter.app` to Applications before enabling it.
 
@@ -72,7 +75,7 @@ The code is organized by responsibility. Frontend state lives in per-feature zus
 - `src/shared` contains UI primitives, the notice store (severity + auto-expiry), the fixed-path native settings gateway, the boot loader with verified legacy-localStorage migration, and the keyboard shortcut layer.
 - `src-tauri/src/prompt.rs` owns prompt validation and composition; `place_prompt` composes and fills in a single IPC round trip.
 - `src-tauri/src/app_lifecycle` owns the single permanent native window, close-to-background behavior, activation serialization, Dock/second-launch/tray handling, and Launch at Login integration.
-- `src-tauri/src/provider` is split by concern: `config` (providers + navigation allowlists), `geometry` (bounds + derived title-bar offset), `bridge` (`prompter://` response correlation), `commands` (webview commands), `error` (the typed command error contract).
+- `src-tauri/src/provider` is split by concern: `config` (providers + navigation allowlists), `geometry` (bounds + derived title-bar offset), `bridge` (`prompter://` response correlation), `commands` (webview commands), `new_chat` (matcher and new-chat-URL validation), `error` (the typed command error contract).
 - `src-tauri/src/provider/navigation.rs` owns the versioned, generation-ordered browser-navigation state and command contract. It emits capability/loading booleans only—never provider URLs or titles.
 - `src-tauri/src/platform` isolates native window and provider WebView behavior, including typed WKWebView navigation and KVO observation of loading/back/forward state so SPA history, failures, and stopped loads remain authoritative.
 - `src-tauri/src/quick_capture` separates shortcut coordination, accelerator parsing and rendering, typed outcomes, direct Accessibility selection reads, guarded pasteboard fallback transactions, and macOS permission APIs.
@@ -82,7 +85,7 @@ Quick Capture logs registration state, outcome codes, and timings to the standar
 
 The configured `main` window is created once and never reconstructed during normal operation. Red-close hides the application, while Dock reopen, Quick Capture, and a second launch all activate the same native window on the user's currently active macOS Desktop/Space. `Command + Q` is allowed to exit; if a clipboard capture is active, exit waits for the transaction to finish so Prompter never intentionally terminates halfway through restoration.
 
-Provider websites can change their editor DOM. Update each provider's selector list in `src-tauri/src/provider/config.rs`, then run the adapter tests and manually verify both providers.
+Provider websites can change their editor DOM. Update each provider's selector list in `src-tauri/src/provider/config.rs`, then run the adapter tests and manually verify both providers. The same file holds the built-in new-chat selectors, labels, and addresses; the split of responsibility is that Rust enforces the safety boundary (shape, bounds, allowed attribute families, same-origin URLs) while `src/features/providers/newChat.ts` applies the quality filter that decides which pasted signals are durable enough to keep.
 
 ## Verify
 

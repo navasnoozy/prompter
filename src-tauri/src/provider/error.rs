@@ -16,6 +16,9 @@ pub(crate) enum ProviderErrorCode {
     WrongHost,
     EditorNotFound,
     EditorUpdateFailed,
+    /// The provider's own "New chat" control could not be identified in the
+    /// page. Recoverable: the caller falls back to a navigation-based reset.
+    NewChatUnavailable,
     MissingInstruction,
     MissingText,
     PromptTooLarge,
@@ -45,6 +48,7 @@ impl ProviderErrorCode {
             "wrong_host" => Some(Self::WrongHost),
             "editor_not_found" => Some(Self::EditorNotFound),
             "editor_update_failed" => Some(Self::EditorUpdateFailed),
+            "new_chat_unavailable" => Some(Self::NewChatUnavailable),
             "internal" => Some(Self::WebviewOperationFailed),
             _ => None,
         }

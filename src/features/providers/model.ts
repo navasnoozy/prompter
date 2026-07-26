@@ -6,14 +6,22 @@ import {
   ProviderSchema,
 } from "../../shared/schemas";
 
+// `host` and `newChatUrl` mirror `expected_fill_host` and `new_chat_url` in
+// `src-tauri/src/provider/config.rs`. The native side stays authoritative — it
+// re-validates every override — but Settings needs them to explain a rejected
+// address while the user is still typing it.
 export const PROVIDERS = {
   chatgpt: {
     label: "ChatGPT",
     logo: "◎",
+    host: "chatgpt.com",
+    newChatUrl: "https://chatgpt.com/",
   },
   gemini: {
     label: "Gemini",
     logo: "✦",
+    host: "gemini.google.com",
+    newChatUrl: "https://gemini.google.com/app/new",
   },
 } as const;
 

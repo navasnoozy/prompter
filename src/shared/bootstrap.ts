@@ -3,6 +3,12 @@ import type { InstructionPreset } from "../features/instructions/model";
 import { decodeStoredInstructions } from "../features/instructions/storage";
 import { initializeInstructionStore } from "../features/instructions/store";
 import { isProvider, type Provider } from "../features/providers/model";
+import {
+  decodeStoredNewChatMode,
+  decodeStoredNewChatOverrides,
+  type NewChatMode,
+  type NewChatOverrides,
+} from "../features/providers/newChat";
 import { initializeProviderStore } from "../features/providers/store";
 import {
   initializeSettingsStore,
@@ -19,6 +25,8 @@ export type BootState = {
   selectedId: string | undefined;
   theme: AppTheme;
   provider: Provider;
+  newChatMode: NewChatMode;
+  newChatOverrides: NewChatOverrides;
 };
 
 function systemTheme(): AppTheme {
@@ -63,6 +71,8 @@ export async function loadBootState(): Promise<BootState> {
     selectedId: selectedInstructionId,
     theme,
     provider,
+    newChatMode: decodeStoredNewChatMode(durable.newChatMode),
+    newChatOverrides: decodeStoredNewChatOverrides(durable.newChatOverrides),
   };
 }
 
@@ -70,5 +80,9 @@ export async function bootstrapStores(): Promise<void> {
   const boot = await loadBootState();
   initializeInstructionStore(boot.instructions, boot.selectedId);
   initializeSettingsStore(boot.theme);
-  initializeProviderStore(boot.provider);
+  initializeProviderStore(
+    boot.provider,
+    boot.newChatMode,
+    boot.newChatOverrides,
+  );
 }

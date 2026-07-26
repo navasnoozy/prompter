@@ -18,6 +18,41 @@ const GEMINI_EDITOR_SELECTORS: &[&str] = &[
     "textarea",
 ];
 
+/// Candidate selectors for the provider's own "New chat" control. Only
+/// automation-stable hooks belong here — test ids, ARIA labels, and routes.
+/// Utility classes and hashed asset names churn on every deploy, so matching
+/// them would age worse than matching nothing. Anything found here is still
+/// scored against `new_chat_labels` before it is clicked, so a selector that
+/// starts matching the wrong element degrades to "not found" rather than to a
+/// wrong click.
+const CHATGPT_NEW_CHAT_SELECTORS: &[&str] = &[
+    "[data-testid='create-new-chat-button']",
+    "a[data-testid='create-new-chat-button']",
+    "[data-sidebar-item='true'][href='/']",
+    "nav a[href='/']",
+];
+
+const GEMINI_NEW_CHAT_SELECTORS: &[&str] = &[
+    "[data-test-id='new-chat-button']",
+    "[data-test-id='expandable-new-chat-button']",
+    "expanded-button[data-test-id='new-chat-button']",
+    "side-nav-action-button[data-test-id='new-chat-button']",
+    "button[aria-label='New chat']",
+    "[role='button'][aria-label='New chat']",
+];
+
+/// Accessible names that identify the control when every selector above has
+/// aged out. Compared case-insensitively against trimmed text and ARIA labels.
+const CHATGPT_NEW_CHAT_LABELS: &[&str] = &["new chat"];
+const GEMINI_NEW_CHAT_LABELS: &[&str] = &["new chat", "new conversation"];
+
+/// URL paths that mean "no conversation is open". Used to confirm a reset
+/// actually happened, and to recognize a pane that is already on a blank chat.
+/// A leading `/u/<digits>` account segment is stripped before comparison, so a
+/// multi-account Google session matches the same way a single-account one does.
+const CHATGPT_FRESH_CHAT_PATHS: &[&str] = &["/"];
+const GEMINI_FRESH_CHAT_PATHS: &[&str] = &["/app", "/app/new", "/"];
+
 /// Hosts whose new windows belong inside the pane rather than in the user's
 /// browser: the provider itself and its observed sign-in origins, which must
 /// land in the same cookie store as the page that opened them. The lists stay
@@ -52,16 +87,24 @@ impl Provider {
                 webview_label: "provider-chatgpt",
                 display_name: "ChatGPT",
                 url: "https://chatgpt.com/",
+                new_chat_url: "https://chatgpt.com/",
                 expected_fill_host: "chatgpt.com",
                 editor_selectors: CHATGPT_EDITOR_SELECTORS,
+                new_chat_selectors: CHATGPT_NEW_CHAT_SELECTORS,
+                new_chat_labels: CHATGPT_NEW_CHAT_LABELS,
+                fresh_chat_paths: CHATGPT_FRESH_CHAT_PATHS,
             },
             Self::Gemini => ProviderConfig {
                 id: "gemini",
                 webview_label: "provider-gemini",
                 display_name: "Gemini",
                 url: "https://gemini.google.com/",
+                new_chat_url: "https://gemini.google.com/app/new",
                 expected_fill_host: "gemini.google.com",
                 editor_selectors: GEMINI_EDITOR_SELECTORS,
+                new_chat_selectors: GEMINI_NEW_CHAT_SELECTORS,
+                new_chat_labels: GEMINI_NEW_CHAT_LABELS,
+                fresh_chat_paths: GEMINI_FRESH_CHAT_PATHS,
             },
         }
     }
@@ -109,8 +152,15 @@ pub(crate) struct ProviderConfig {
     pub(crate) webview_label: &'static str,
     pub(crate) display_name: &'static str,
     pub(crate) url: &'static str,
+    /// Where a reset navigates when the in-page control cannot be used. Always
+    /// on `expected_fill_host`, so a reset can never move the pane off the
+    /// origin placement requires.
+    pub(crate) new_chat_url: &'static str,
     pub(crate) expected_fill_host: &'static str,
     pub(crate) editor_selectors: &'static [&'static str],
+    pub(crate) new_chat_selectors: &'static [&'static str],
+    pub(crate) new_chat_labels: &'static [&'static str],
+    pub(crate) fresh_chat_paths: &'static [&'static str],
 }
 
 #[cfg(test)]
@@ -143,7 +193,18 @@ mod tests {
             assert!(labels.insert(config.webview_label));
             assert!(hosts.insert(config.expected_fill_host));
             assert!(!config.editor_selectors.is_empty());
+            assert!(!config.new_chat_selectors.is_empty());
+            assert!(!config.new_chat_labels.is_empty());
+            assert!(!config.fresh_chat_paths.is_empty());
             assert!(config.url.starts_with("https://"));
+            assert!(config
+                .new_chat_labels
+                .iter()
+                .all(|label| label.trim() == *label && label.to_lowercase() == *label));
+            assert!(config
+                .fresh_chat_paths
+                .iter()
+                .all(|path| path.starts_with('/')));
         }
 
         assert!(Provider::Chatgpt
@@ -154,6 +215,21 @@ mod tests {
             .config()
             .editor_selectors
             .contains(&"rich-textarea .ql-editor[contenteditable='true']"));
+    }
+
+    /// A reset must never be able to move a pane somewhere placement will then
+    /// refuse to fill, so the built-in reset target has to satisfy the same
+    /// origin policy as placement itself.
+    #[test]
+    fn the_built_in_new_chat_target_satisfies_the_fill_policy() {
+        for provider in Provider::ALL {
+            let url = Url::parse(provider.config().new_chat_url)
+                .expect("the built-in new chat URL must parse");
+            assert!(
+                provider.accepts_fill_url(&url),
+                "{provider:?} must reset onto its own fill host"
+            );
+        }
     }
 
     #[test]

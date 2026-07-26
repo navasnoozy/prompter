@@ -22,6 +22,7 @@ define_app_commands!(
     "resize_provider_webview" => resize_provider_webview,
     "set_provider_visibility" => set_provider_visibility,
     "place_prompt" => place_prompt,
+    "open_provider_new_chat" => open_provider_new_chat,
     "get_quick_capture_status" => get_quick_capture_status,
     "request_quick_capture_permission" => request_quick_capture_permission,
     "open_quick_capture_settings" => open_quick_capture_settings,

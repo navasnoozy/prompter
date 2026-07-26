@@ -1,6 +1,7 @@
 import { Icon } from "../../shared/Icon";
 import { ModalBackdrop } from "../../shared/ModalBackdrop";
 import { useLifecycleStore } from "../lifecycle/store";
+import { NewChatSettings } from "../providers/NewChatSettings";
 import { ShortcutRecorder } from "../quickCapture/ShortcutRecorder";
 import { useCaptureStore } from "../quickCapture/store";
 import { useSettingsStore } from "./store";
@@ -94,6 +95,10 @@ export function SettingsDialog() {
             </button>
           </div>
         </div>
+
+        <div className="settings-divider" />
+
+        <NewChatSettings />
 
         <div className="settings-divider" />
 
