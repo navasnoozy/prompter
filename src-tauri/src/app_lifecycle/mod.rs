@@ -11,7 +11,7 @@ use tauri_plugin_autostart::ManagerExt;
 
 pub(crate) const BACKGROUND_LAUNCH_ARG: &str = "--prompter-background";
 
-use crate::{platform, MAIN_WINDOW_LABEL};
+use crate::{platform, provider, MAIN_WINDOW_LABEL};
 
 const CONTRACT_VERSION: u8 = 1;
 const VISIBILITY_EVENT: &str = "prompter://main-window-visibility";
@@ -309,6 +309,19 @@ pub(crate) fn request_activation<R: Runtime>(
 pub(crate) fn handle_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
     if window.label() != MAIN_WINDOW_LABEL {
         return;
+    }
+
+    // Every native provider pane is positioned against this window. AppKit
+    // moves and resizes it without the frontend ever hearing about it — a
+    // restored-maximized launch zooms the window asynchronously, a display
+    // change restacks it, an occluded window stops running animation frames
+    // entirely — so the pane's placement is refreshed from here rather than
+    // left to depend on the DOM noticing.
+    if matches!(
+        event,
+        WindowEvent::Resized(_) | WindowEvent::Moved(_) | WindowEvent::ScaleFactorChanged { .. }
+    ) {
+        provider::schedule_placement_refresh(window.app_handle());
     }
 
     if let WindowEvent::CloseRequested { api, .. } = event {

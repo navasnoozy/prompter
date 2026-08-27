@@ -44,12 +44,12 @@ describe("useEmbeddedProvider", () => {
       toJSON: () => ({}),
     });
     vi.stubGlobal("ResizeObserver", undefined);
+    // An occluded or tray-hidden window stops being served animation frames.
+    // Every test here runs under that condition, because placement must not
+    // depend on a callback the platform is free to withhold.
     vi.stubGlobal(
       "requestAnimationFrame",
-      vi.fn((callback: FrameRequestCallback) => {
-        callback(0);
-        return 1;
-      }),
+      vi.fn(() => 1),
     );
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
     useLifecycleStore.setState({
@@ -83,6 +83,48 @@ describe("useEmbeddedProvider", () => {
         height: 500,
       }),
     );
+    view.unmount();
+  });
+
+  it("reports layout changes even when animation frames are never served", async () => {
+    const view = render(<Harness />);
+    await waitFor(() => expect(providerGateway.show).toHaveBeenCalledOnce());
+
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 800,
+      height: 700,
+      left: 10,
+      right: 1210,
+      top: 20,
+      width: 1200,
+      x: 10,
+      y: 20,
+      toJSON: () => ({}),
+    });
+    window.dispatchEvent(new Event("resize"));
+
+    await waitFor(() =>
+      expect(providerGateway.resize).toHaveBeenCalledWith("chatgpt", {
+        x: 10,
+        y: 20,
+        width: 1200,
+        height: 700,
+      }),
+    );
+    expect(window.requestAnimationFrame).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("collapses a burst of layout notifications into one report", async () => {
+    const view = render(<Harness />);
+    await waitFor(() => expect(providerGateway.show).toHaveBeenCalledOnce());
+
+    for (let frame = 0; frame < 20; frame += 1) {
+      window.dispatchEvent(new Event("resize"));
+    }
+
+    await waitFor(() => expect(providerGateway.resize).toHaveBeenCalled());
+    expect(providerGateway.resize).toHaveBeenCalledTimes(1);
     view.unmount();
   });
 });

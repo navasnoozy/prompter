@@ -17,7 +17,13 @@
 
 * { box-sizing: border-box; }
 
-html, body, #root { min-height: 100%; margin: 0; }
+/* The app shell fills the window and never scrolls as a document. Host
+   elements are measured with getBoundingClientRect, which is relative to the
+   scroll position — a scrolled shell would report a position the native
+   provider pane has no way to follow. Regions that need to scroll (the
+   instruction list, dialog bodies) scroll inside their own box. */
+html, body { height: 100%; margin: 0; overflow: hidden; }
+#root { min-height: 100%; margin: 0; }
 
 .boot-screen {
   min-height: 100vh;

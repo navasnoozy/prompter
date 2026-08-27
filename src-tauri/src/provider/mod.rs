@@ -8,6 +8,7 @@ mod error;
 mod geometry;
 mod navigation;
 mod new_chat;
+mod placement;
 
 pub(crate) use commands::{
     open_provider_new_chat, place_prompt, resize_provider_webview, set_provider_visibility,
@@ -16,3 +17,4 @@ pub(crate) use commands::{
 pub(crate) use navigation::{
     control_provider_navigation, get_provider_navigation_state, ProviderNavigationCoordinator,
 };
+pub(crate) use placement::{schedule_refresh as schedule_placement_refresh, ProviderPlacement};

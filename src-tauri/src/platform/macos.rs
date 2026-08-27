@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use objc2::MainThreadMarker;
-use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSWorkspace};
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSWindow, NSWindowCollectionBehavior, NSWorkspace};
 use objc2_foundation::{NSString, NSURL};
 use tauri::{Runtime, Window};
 
@@ -69,6 +69,34 @@ pub(crate) fn apply_provider_corner_radius(webview: &tauri::Webview) -> Result<(
             }
         })
         .map_err(|error| format!("Could not round the embedded browser: {error}"))
+}
+
+/// Pins a provider pane to all four edges of the view that hosts it, so AppKit
+/// resizes it in the same frame as the window.
+///
+/// wry creates child WebViews with `NSViewMinYMargin` — a fixed-size view held
+/// against the top of its host. That leaves the pane the wrong size the instant
+/// the window changes, and correcting it means a round trip out to the frontend
+/// and back, which lags a live drag and stalls entirely while the window is
+/// occluded. A fully sizable mask makes the common case free and exact: the
+/// pane's insets are already zero-margin on every edge, so tracking the host
+/// view reproduces the layout the frontend asked for without any IPC at all.
+///
+/// Placement still re-derives the pane's rect after the window settles. The
+/// mask keeps it right during the change; the re-derivation keeps it right
+/// afterwards, when the layout itself — not just the window — may have moved.
+pub(crate) fn pin_provider_webview_edges(webview: &tauri::Webview) -> Result<(), String> {
+    webview
+        .with_webview(|platform_webview| unsafe {
+            // SAFETY: Tauri guarantees that PlatformWebview::inner is a valid
+            // WKWebView pointer for the duration of this callback. WKWebView
+            // inherits from NSView, which declares `setAutoresizingMask:`.
+            let view = platform_webview.inner().cast::<objc2::runtime::AnyObject>();
+            let mask = NSAutoresizingMaskOptions::ViewWidthSizable
+                | NSAutoresizingMaskOptions::ViewHeightSizable;
+            let _: () = objc2::msg_send![view, setAutoresizingMask: mask];
+        })
+        .map_err(|error| format!("Could not pin the embedded browser to the window: {error}"))
 }
 
 #[cfg(test)]

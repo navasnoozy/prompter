@@ -18,14 +18,23 @@ import {
 import { useProviderStore } from "./store";
 
 const MIN_PROVIDER_SIZE = 240;
+// Collapses the burst of layout notifications a live window drag produces.
+const RESIZE_COALESCE_MS = 16;
 
 type UseEmbeddedProviderResult = {
   hostRef: RefObject<HTMLDivElement | null>;
 };
 
-// Owns the native child-webview lifecycle: creation, visibility, and
-// resize tracking against the host element. The pane is visible only while
-// the window is presented and no dialog covers it.
+// Owns the native child-webview lifecycle: creation, visibility, and layout
+// tracking against the host element. The pane is visible only while the window
+// is presented and no dialog covers it.
+//
+// Layout is all this hook reports. Where the pane ends up is decided natively:
+// the backend records each report as insets from the window's content edges and
+// re-derives the pane's frame whenever the window itself moves or resizes.
+// That split matters because the DOM cannot see a window resize that AppKit has
+// already applied, and this hook stops running altogether while the window is
+// hidden to the tray.
 export function useEmbeddedProvider(): UseEmbeddedProviderResult {
   const provider = useProviderStore((state) => state.provider);
   const mainWindowVisible = useLifecycleStore(
@@ -93,7 +102,7 @@ export function useEmbeddedProvider(): UseEmbeddedProviderResult {
 
   useLayoutEffect(() => {
     let disposed = false;
-    let animationFrame = 0;
+    let resizeTimer = 0;
     let resizeErrorReported = false;
 
     if (!visible) {
@@ -120,19 +129,22 @@ export function useEmbeddedProvider(): UseEmbeddedProviderResult {
       }
     };
 
+    // Deliberately a timer rather than an animation frame: animation frames
+    // stop being delivered while the window is occluded, so a pane whose
+    // placement depended on them would be left stale by exactly the transitions
+    // most likely to move it.
     const resizeProvider = () => {
-      window.cancelAnimationFrame(animationFrame);
-      animationFrame = window.requestAnimationFrame(() => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
         const bounds = readBounds();
-        if (bounds) {
-          void providerGateway.resize(provider, bounds).catch((error) => {
-            if (!disposed && !resizeErrorReported) {
-              resizeErrorReported = true;
-              publishNotice("error", placementErrorMessage(error));
-            }
-          });
-        }
-      });
+        if (!bounds) return;
+        void providerGateway.resize(provider, bounds).catch((error) => {
+          if (!disposed && !resizeErrorReported) {
+            resizeErrorReported = true;
+            publishNotice("error", placementErrorMessage(error));
+          }
+        });
+      }, RESIZE_COALESCE_MS);
     };
 
     void showProvider();
@@ -147,7 +159,7 @@ export function useEmbeddedProvider(): UseEmbeddedProviderResult {
       disposed = true;
       observer?.disconnect();
       window.removeEventListener("resize", resizeProvider);
-      window.cancelAnimationFrame(animationFrame);
+      window.clearTimeout(resizeTimer);
     };
   }, [ensureProvider, provider, readBounds, visible]);
 

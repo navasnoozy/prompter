@@ -7,7 +7,7 @@ use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use tauri::{
     webview::{NewWindowResponse, WebviewBuilder},
-    AppHandle, Manager, Rect, State, Url, WebviewUrl,
+    AppHandle, Manager, State, Url, WebviewUrl,
 };
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 
@@ -15,9 +15,10 @@ use super::{
     bridge::{self, is_valid_request_id},
     config::Provider,
     error::{ProviderCommandError, ProviderErrorCode},
-    geometry::{self, ProviderBounds},
+    geometry::ProviderBounds,
     navigation,
     new_chat::{self, NewChatMatcher},
+    placement,
 };
 use crate::{platform, prompt::PromptInput, MAIN_WINDOW_LABEL};
 
@@ -238,7 +239,7 @@ pub(crate) async fn show_provider_webview(
             "The Prompter window was not found.",
         )
     })?;
-    let rect = Rect::from(bounds.validate(geometry::content_offset_y(&window))?);
+    let rect = placement::adopt(&app, provider, bounds)?;
 
     for inactive in Provider::ALL
         .into_iter()
@@ -256,9 +257,8 @@ pub(crate) async fn show_provider_webview(
     if let Some(webview) = app.get_webview(config.webview_label) {
         if navigation::current_provider_navigation_generation(&app, provider)?.is_some() {
             platform::apply_provider_corner_radius(&webview).map_err(operation_failed)?;
-            webview.set_bounds(rect).map_err(|error| {
-                operation_failed(format!("Could not resize the embedded browser: {error}"))
-            })?;
+            platform::pin_provider_webview_edges(&webview).map_err(operation_failed)?;
+            placement::apply(&app, provider, &webview, rect)?;
             webview.show().map_err(|error| {
                 operation_failed(format!("Could not show the embedded browser: {error}"))
             })?;
@@ -344,9 +344,19 @@ pub(crate) async fn show_provider_webview(
             operation_failed(format!("Could not embed the provider browser: {error}"))
         })?;
 
-    if let Err(error) = platform::apply_provider_corner_radius(&webview) {
+    if let Err(error) = platform::apply_provider_corner_radius(&webview)
+        .and_then(|()| platform::pin_provider_webview_edges(&webview))
+    {
         discard_failed_provider_webview(&app, provider, &webview).await;
         return Err(operation_failed(error));
+    }
+    // `add_child` seeds the pane's frame through a different code path than
+    // every later placement takes. Re-applying the same rect here makes
+    // `set_bounds` the single authority for where a pane sits, and confirms the
+    // platform agreed before the pane is ever shown.
+    if let Err(error) = placement::apply(&app, provider, &webview, rect) {
+        discard_failed_provider_webview(&app, provider, &webview).await;
+        return Err(error);
     }
     if let Err(error) = navigation::register_provider_navigation(&app, &webview, provider).await {
         discard_failed_provider_webview(&app, provider, &webview).await;
@@ -388,20 +398,8 @@ pub(crate) fn resize_provider_webview(
     let Some(webview) = app.get_webview(provider.config().webview_label) else {
         return Ok(());
     };
-    let window = app.get_window(MAIN_WINDOW_LABEL).ok_or_else(|| {
-        ProviderCommandError::new(
-            ProviderErrorCode::WindowMissing,
-            "The Prompter window was not found.",
-        )
-    })?;
-
-    webview
-        .set_bounds(Rect::from(
-            bounds.validate(geometry::content_offset_y(&window))?,
-        ))
-        .map_err(|error| {
-            operation_failed(format!("Could not resize the embedded browser: {error}"))
-        })
+    let rect = placement::adopt(&app, provider, bounds)?;
+    placement::apply(&app, provider, &webview, rect)
 }
 
 #[tauri::command]
