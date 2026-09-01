@@ -31,7 +31,6 @@
     "allow-get-app-lifecycle-status",
     "allow-set-launch-at-login",
     "allow-load-settings",
-    "allow-save-settings",
-    "allow-probe-dom-metrics"
+    "allow-save-settings"
   ]
 }

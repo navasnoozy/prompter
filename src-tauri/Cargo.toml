@@ -36,5 +36,4 @@ objc2-web-kit = { version = "0.3", default-features = false, features = ["std", 
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
-tauri-plugin-window-state = "2"
 tokio = { version = "1", features = ["sync", "time"] }

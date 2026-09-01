@@ -224,12 +224,6 @@ async fn close_provider_webview(
         .map_err(|error| operation_failed(format!("{failure_context}: {error}")))
 }
 
-/// TEMPORARY DIAGNOSTIC — the frontend's own view of its coordinate space.
-#[tauri::command]
-pub(crate) fn probe_dom_metrics(metrics: String) {
-    info!(target: "prompter::provider", "event=dom_probe {metrics}");
-}
-
 #[tauri::command]
 pub(crate) async fn show_provider_webview(
     app: AppHandle,
@@ -267,7 +261,6 @@ pub(crate) async fn show_provider_webview(
             platform::apply_provider_corner_radius(&webview).map_err(operation_failed)?;
             platform::pin_provider_webview_edges(&webview).map_err(operation_failed)?;
             placement::apply(&app, provider, &webview, rect)?;
-            placement::probe(&app, provider, rect);
             webview.show().map_err(|error| {
                 operation_failed(format!("Could not show the embedded browser: {error}"))
             })?;
@@ -369,8 +362,6 @@ pub(crate) async fn show_provider_webview(
         return Err(error);
     }
     info!(target: "prompter::provider", "event=trace step=add_child_done");
-    placement::probe(&app, provider, rect);
-    placement::probe_when_settled(&app, provider);
     if let Err(error) = navigation::register_provider_navigation(&app, &webview, provider).await {
         discard_failed_provider_webview(&app, provider, &webview).await;
         return Err(error);
@@ -413,7 +404,6 @@ pub(crate) fn resize_provider_webview(
     };
     let rect = placement::adopt(&app, provider, bounds)?;
     placement::apply(&app, provider, &webview, rect)?;
-    placement::probe(&app, provider, rect);
     Ok(())
 }
 

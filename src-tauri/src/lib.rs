@@ -17,8 +17,8 @@ use app_lifecycle::{
 };
 use provider::{
     control_provider_navigation, get_provider_navigation_state, open_provider_new_chat,
-    place_prompt, probe_dom_metrics, resize_provider_webview, set_provider_visibility,
-    show_provider_webview, ProviderLifecycle, ProviderNavigationCoordinator, ProviderPlacement,
+    place_prompt, resize_provider_webview, set_provider_visibility, show_provider_webview,
+    ProviderLifecycle, ProviderNavigationCoordinator, ProviderPlacement,
 };
 use quick_capture::{
     acknowledge_quick_capture_outcomes, get_quick_capture_status, list_quick_capture_outcomes,
@@ -74,19 +74,12 @@ pub fn run() {
                 .build(),
         )
         .plugin(quick_capture::shortcut_plugin())
-        // SIZE is deliberately absent. The plugin saves `inner_size()` in
-        // physical pixels and replays it as physical pixels without recording
-        // the scale factor it measured, so a window saved on a 2x panel
-        // reopens at half the size against a 1x one. `app_lifecycle` carries
-        // the size itself, in logical points, which has no such failure mode.
-        .plugin(
-            tauri_plugin_window_state::Builder::new()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::POSITION
-                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
-                )
-                .build(),
-        )
+        // `tauri-plugin-window-state` is deliberately absent. It persists the
+        // window's frame in physical pixels without recording the scale factor
+        // it measured them at, and validates them against monitor rectangles
+        // scaled by a *different* factor, so on a mixed-DPI desktop it both
+        // corrupts the frame and fails to notice. `app_lifecycle` owns the
+        // frame instead, in logical points; see `window_geometry`.
         .manage(ProviderLifecycle::default())
         .manage(ProviderPlacement::default())
         .manage(ProviderNavigationCoordinator::default())
@@ -100,17 +93,6 @@ pub fn run() {
             app_lifecycle::initialize(app.handle(), autostart_available);
             app_lifecycle::install_tray(app.handle());
             quick_capture::initialize(app.handle());
-            {
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    for delay in [1500u64, 4000, 8000] {
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                        provider::placement::probe_dom(&handle);
-                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                        provider::placement::read_dom_probe(&handle);
-                    }
-                });
-            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -129,9 +111,13 @@ pub fn run() {
         tauri::RunEvent::ExitRequested {
             code: None, api, ..
         } => {
-            app_lifecycle::persist_window_size(app);
             quick_capture::handle_exit_requested(app, &api);
         }
+        // `Exit` rather than `ExitRequested`: quitting from the tray calls
+        // `AppHandle::exit(0)`, which raises `ExitRequested { code: Some(0) }`
+        // and so never reached the arm above. Every termination path that runs
+        // the event loop's teardown reaches this one.
+        tauri::RunEvent::Exit => app_lifecycle::persist_window_geometry(app),
         _ => {}
     });
 }

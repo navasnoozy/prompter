@@ -22,7 +22,7 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
         Mutex,
     },
     time::Duration,
@@ -36,7 +36,7 @@ use super::{
     error::{ProviderCommandError, ProviderErrorCode},
     geometry::{self, HostSurface, PaneInsets, ProviderBounds},
 };
-use crate::{platform, MAIN_WINDOW_LABEL};
+use crate::MAIN_WINDOW_LABEL;
 
 /// A live window drag emits a resize event per frame. One correction pass after
 /// the burst settles is enough, because the pane's autoresizing mask already
@@ -56,8 +56,6 @@ pub(crate) struct ProviderPlacement {
     /// The last surface origin that was reported. Held so the log records the
     /// measurement once and on every change, rather than on every placement.
     reported_origin: Mutex<Option<(f64, f64)>>,
-    /// TEMPORARY: how many diagnostic readings have been taken.
-    probes: AtomicUsize,
 }
 
 impl ProviderPlacement {
@@ -196,138 +194,6 @@ pub(crate) fn schedule_refresh<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
-/// TEMPORARY DIAGNOSTIC — remove once the pane offset is understood.
-///
-/// Logs the rect we asked for beside AppKit's own reading of where the pane and
-/// the main WebView actually sit, in screen coordinates. This is precisely what
-/// `confirm` below cannot tell us: `webview.bounds()` inverts the same flip
-/// that `set_bounds` applied, so it agrees with a wrong placement instead of
-/// catching it. AppKit does not share that arithmetic.
-///
-/// Rate-limited, because a live drag produces a placement per frame and the
-/// question is settled by the first few readings.
-pub(crate) fn probe(app: &AppHandle, provider: Provider, requested: Rect) {
-    const PROBE_LIMIT: usize = 8;
-
-    if app
-        .state::<ProviderPlacement>()
-        .probes
-        .fetch_add(1, Ordering::Relaxed)
-        >= PROBE_LIMIT
-    {
-        return;
-    }
-
-    let label = provider.config().webview_label;
-    let Some(main) = app.get_webview(MAIN_WINDOW_LABEL) else {
-        return;
-    };
-    if let Some(scale) = geometry::scale_factor(&main) {
-        info!(
-            target: "prompter::provider",
-            "event=geometry_probe role=requested provider={label} rect={} scale={scale}",
-            geometry::describe(requested, scale)
-        );
-    }
-    platform::log_webview_geometry(&main, "main");
-    if let Some(pane) = app.get_webview(label) {
-        platform::log_webview_geometry(&pane, "pane");
-    }
-    probe_dom(app);
-}
-
-/// TEMPORARY DIAGNOSTIC — asks the DOM where it thinks it is.
-///
-/// The native probe reads the WebView's frame; this reads the coordinate space
-/// the frontend measures in. If the two disagree, every rect the frontend
-/// reports is being handed to AppKit in the wrong space, and no amount of
-/// correctness on the native side can place the pane where the card is.
-///
-/// The answer comes back through the window title because Tauri's `eval` is
-/// one-way: there is no JavaScript return channel to a Rust caller.
-pub(crate) fn probe_dom(app: &AppHandle) {
-    let Some(main) = app.get_webview(MAIN_WINDOW_LABEL) else {
-        return;
-    };
-    let script = r#"(() => {
-  try {
-    const rect = (sel) => {
-      const el = document.querySelector(sel);
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return [+r.left.toFixed(1), +r.top.toFixed(1), +r.width.toFixed(1), +r.height.toFixed(1)];
-    };
-    const payload = JSON.stringify({
-      inner: [window.innerWidth, window.innerHeight],
-      outer: [window.outerWidth, window.outerHeight],
-      screen_xy: [window.screenX, window.screenY],
-      doc_el: [document.documentElement.clientWidth, document.documentElement.clientHeight],
-      dpr: window.devicePixelRatio,
-      host: rect(".provider-webview-host"),
-      card: rect(".browser-card"),
-      dock: rect(".bottom-dock"),
-      roots: Array.from(document.body.children).map((el) => String(el.className)).join("|").slice(0, 120),
-      body: (document.body.innerText || "").replace(/\s+/g, " ").slice(0, 200)
-    });
-    window.__TAURI_INTERNALS__.invoke("probe_dom_metrics", { metrics: payload });
-  } catch (error) {
-    window.__TAURI_INTERNALS__.invoke("probe_dom_metrics", {
-      metrics: JSON.stringify({ error: String(error) }),
-    });
-  }
-})();"#;
-    if let Err(error) = main.eval(script) {
-        info!(target: "prompter::provider", "event=dom_probe outcome=eval_failed reason={error}");
-    }
-}
-
-/// Reads back what `probe_dom` wrote, then restores the real title.
-pub(crate) fn read_dom_probe(app: &AppHandle) {
-    let Some(window) = app.get_window(MAIN_WINDOW_LABEL) else {
-        return;
-    };
-    match window.title() {
-        Ok(title) if title.starts_with("PROBE ") => {
-            info!(target: "prompter::provider", "event=dom_probe {}", &title[6..]);
-            let _ = window.set_title("Prompter");
-        }
-        Ok(title) => {
-            info!(target: "prompter::provider", "event=dom_probe outcome=not_reported title={title}");
-        }
-        Err(error) => {
-            info!(target: "prompter::provider", "event=dom_probe outcome=unreadable reason={error}");
-        }
-    }
-}
-
-/// TEMPORARY DIAGNOSTIC — reads again once the window has stopped moving.
-///
-/// A restored-maximized launch places the pane mid-zoom, so the first reading
-/// can be correct for a window size that no longer exists. The number that
-/// matters is the one on screen while the user is looking at it.
-pub(crate) fn probe_when_settled(app: &AppHandle, provider: Provider) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(2500)).await;
-        if let Some(main) = app.get_webview(MAIN_WINDOW_LABEL) {
-            platform::log_webview_geometry(&main, "main_settled");
-        }
-        if let Some(pane) = app.get_webview(provider.config().webview_label) {
-            platform::log_webview_geometry(&pane, "pane_settled");
-        }
-        probe_dom(&app);
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        read_dom_probe(&app);
-    });
-}
-
-/// Reads the applied frame back, and corrects it once against the settled
-/// surface if the platform placed the pane somewhere else.
-///
-/// A pane that is still wrong after that correction is logged rather than
-/// raised: the placement is cosmetic and self-healing — the next layout change
-/// or window event runs this again — so failing the caller's command would
-/// report an error for something already on its way to being fixed.
 fn confirm<R: Runtime>(
     app: &AppHandle<R>,
     provider: Provider,

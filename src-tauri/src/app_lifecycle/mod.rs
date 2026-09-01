@@ -1,27 +1,22 @@
 mod tray;
+mod window_geometry;
 
 pub(crate) use tray::install_tray;
+pub(crate) use window_geometry::persist as persist_window_geometry;
 
 use std::{fmt, sync::Mutex, time::Instant};
 
 use log::{info, warn};
 use serde::Serialize;
-use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalSize, Runtime, State, Window, WindowEvent,
-};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, Window, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
 pub(crate) const BACKGROUND_LAUNCH_ARG: &str = "--prompter-background";
 
-use crate::{platform, provider, settings, MAIN_WINDOW_LABEL};
+use crate::{platform, provider, MAIN_WINDOW_LABEL};
 
 const CONTRACT_VERSION: u8 = 1;
 const VISIBILITY_EVENT: &str = "prompter://main-window-visibility";
-
-/// The main window's floor, in *logical* pixels, mirroring `minWidth` and
-/// `minHeight` in `tauri.conf.json`. A test below pins the two together.
-const MIN_WINDOW_WIDTH: f64 = 1000.0;
-const MIN_WINDOW_HEIGHT: f64 = 780.0;
 
 #[derive(Debug, Default)]
 struct LifecycleState {
@@ -34,10 +29,6 @@ struct LifecycleState {
     /// presented/red-closed distinction.
     visible: bool,
     autostart_available: bool,
-    /// The window's size in logical points, as last reported by a resize.
-    /// Flushed to disk when the app hides or exits rather than on every
-    /// resize, so dragging an edge does not write a file per frame.
-    last_size: Option<(f64, f64)>,
 }
 
 #[derive(Debug, Default)]
@@ -203,7 +194,7 @@ pub(crate) fn install_autostart_plugin<R: Runtime>(app: &AppHandle<R>) -> bool {
 pub(crate) fn initialize<R: Runtime>(app: &AppHandle<R>, autostart_available: bool) {
     let background_launch = is_background_launch(std::env::args());
     configure_active_space_policy(app);
-    restore_window_size(app);
+    window_geometry::restore(app);
     let coordinator = app.state::<AppLifecycleCoordinator>();
     let pending_activation = {
         let mut state = coordinator
@@ -228,151 +219,6 @@ pub(crate) fn initialize<R: Runtime>(app: &AppHandle<R>, autostart_available: bo
             "event=startup mode=background window=hidden"
         );
     }
-}
-
-/// Restores the main window to the size the user last left it at.
-///
-/// Prompter carries this itself instead of letting `tauri-plugin-window-state`
-/// do it. That plugin measures `inner_size()` in physical pixels and replays
-/// the number as physical pixels, never recording the scale factor it was
-/// taken at, so a window saved on a 2x panel and reopened against a 1x one
-/// comes back at half the size — which is how the window was arriving at
-/// 676x505 with the sidebar and the prompt dock squeezed out of usefulness.
-/// Logical points do not have that failure mode, and `SIZE` is left out of the
-/// plugin's flags so nothing overwrites what is set here.
-///
-/// Restoring during setup is safe precisely because the plugin no longer
-/// touches the size: there is no longer anything to race.
-fn restore_window_size<R: Runtime>(app: &AppHandle<R>) {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
-        return;
-    };
-    let coordinator = app.state::<settings::SettingsCoordinator>();
-    let Some(stored) = settings::read_backend_string(app, &coordinator, settings::WINDOW_SIZE_KEY)
-    else {
-        return;
-    };
-    let Some((width, height)) = parse_window_size(&stored) else {
-        warn!(
-            target: "prompter::lifecycle",
-            "event=window_size_restore outcome=unreadable value={stored}"
-        );
-        return;
-    };
-
-    // A stored size below the floor is still corrected on the way in, so a
-    // document written by an older build cannot reintroduce the cramped window.
-    let (width, height) = window_size_correction(width, height).unwrap_or((width, height));
-    match window.set_size(LogicalSize::new(width, height)) {
-        Ok(()) => info!(
-            target: "prompter::lifecycle",
-            "event=window_size_restore outcome=success size={width:.0}x{height:.0}"
-        ),
-        Err(error) => warn!(
-            target: "prompter::lifecycle",
-            "event=window_size_restore outcome=failure reason={error}"
-        ),
-    }
-}
-
-/// Writes the size recorded by the last resize, if there was one.
-///
-/// Called when the app hides and when it exits, which between them cover every
-/// way the user finishes with the window.
-pub(crate) fn persist_window_size<R: Runtime>(app: &AppHandle<R>) {
-    let lifecycle = app.state::<AppLifecycleCoordinator>();
-    let size = lifecycle
-        .state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .last_size;
-    let Some((width, height)) = size else {
-        return;
-    };
-
-    let coordinator = app.state::<settings::SettingsCoordinator>();
-    let value = format!("{width:.0}x{height:.0}");
-    if let Err(error) =
-        settings::write_backend_string(app, &coordinator, settings::WINDOW_SIZE_KEY, &value)
-    {
-        warn!(
-            target: "prompter::lifecycle",
-            "event=window_size_persist outcome=failure reason={error:?}"
-        );
-    }
-}
-
-/// Reads a `WIDTHxHEIGHT` pair of logical points back.
-///
-/// Anything unparseable, non-finite, or non-positive is rejected rather than
-/// coerced: the configured default is a better window than a guess built from
-/// a damaged document.
-fn parse_window_size(value: &str) -> Option<(f64, f64)> {
-    let (width, height) = value.split_once('x')?;
-    let width: f64 = width.trim().parse().ok()?;
-    let height: f64 = height.trim().parse().ok()?;
-    (width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0)
-        .then_some((width, height))
-}
-
-/// Grows the window back to the size the layout needs, if something shrank it
-/// below that.
-///
-/// The floor is enforced here as well as on the way in, because a scale factor
-/// change while the app runs can resize the window without the user asking.
-/// AppKit does not cover that case: `contentMinSize` governs the user's own
-/// dragging, which is why an edge drag stops dead on the floor, but a
-/// programmatic `setContentSize:` passes straight through it.
-///
-/// Only the floor is enforced, never a ceiling. An oversized window is
-/// something the user can drag back; capping one here would fight anybody
-/// deliberately spanning two displays.
-fn apply_window_size_floor<R: Runtime>(window: &Window<R>, size: PhysicalSize<u32>) {
-    let scale = match window.scale_factor() {
-        Ok(scale) => scale,
-        Err(error) => {
-            warn!(
-                target: "prompter::lifecycle",
-                "event=window_size_floor outcome=failure reason={error}"
-            );
-            return;
-        }
-    };
-    let current = size.to_logical::<f64>(scale);
-
-    let app = window.app_handle();
-    let lifecycle = app.state::<AppLifecycleCoordinator>();
-    lifecycle
-        .state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .last_size = Some((current.width, current.height));
-
-    let Some((width, height)) = window_size_correction(current.width, current.height) else {
-        return;
-    };
-
-    match window.set_size(LogicalSize::new(width, height)) {
-        Ok(()) => info!(
-            target: "prompter::lifecycle",
-            "event=window_size_floor outcome=corrected from={:.0}x{:.0} to={width:.0}x{height:.0}",
-            current.width, current.height
-        ),
-        Err(error) => warn!(
-            target: "prompter::lifecycle",
-            "event=window_size_floor outcome=failure reason={error}"
-        ),
-    }
-}
-
-fn window_size_correction(width: f64, height: f64) -> Option<(f64, f64)> {
-    if width <= 0.0 || height <= 0.0 {
-        return None;
-    }
-    if width >= MIN_WINDOW_WIDTH && height >= MIN_WINDOW_HEIGHT {
-        return None;
-    }
-    Some((width.max(MIN_WINDOW_WIDTH), height.max(MIN_WINDOW_HEIGHT)))
 }
 
 fn configure_active_space_policy<R: Runtime>(app: &AppHandle<R>) {
@@ -481,17 +327,12 @@ pub(crate) fn handle_window_event<R: Runtime>(window: &Window<R>, event: &Window
         provider::schedule_placement_refresh(window.app_handle());
     }
 
-    // Ordered before nothing in particular: a correction here raises another
-    // resize, which finds the window in range and stops. The placement refresh
-    // above is scheduled rather than immediate, so it picks up the corrected
-    // size either way.
-    if let WindowEvent::Resized(size) = event {
-        apply_window_size_floor(window, *size);
-    }
-
     if let WindowEvent::CloseRequested { api, .. } = event {
         api.prevent_close();
         let app = window.app_handle();
+        // Recorded before the app hides, so a hide that fails cannot also cost
+        // the user the frame they left the window at.
+        window_geometry::persist(app);
         let coordinator = app.state::<AppLifecycleCoordinator>();
         let mut state = coordinator
             .state
@@ -502,7 +343,6 @@ pub(crate) fn handle_window_event<R: Runtime>(window: &Window<R>, event: &Window
             Ok(()) => {
                 state.visible = false;
                 drop(state);
-                persist_window_size(app);
                 emit_visibility(app, false);
                 info!(
                     target: "prompter::lifecycle",
@@ -754,105 +594,5 @@ mod tests {
             "prompter".into(),
             "--prompter-background-other".into(),
         ]));
-    }
-
-    #[test]
-    fn the_window_floor_matches_the_bundled_configuration() {
-        let config: serde_json::Value =
-            serde_json::from_str(include_str!("../../tauri.conf.json")).unwrap();
-        let main = &config["app"]["windows"][0];
-
-        assert_eq!(main["label"], serde_json::json!(MAIN_WINDOW_LABEL));
-        assert_eq!(main["minWidth"].as_f64().unwrap(), MIN_WINDOW_WIDTH);
-        assert_eq!(main["minHeight"].as_f64().unwrap(), MIN_WINDOW_HEIGHT);
-    }
-
-    #[test]
-    fn a_window_within_range_is_left_alone() {
-        assert_eq!(
-            window_size_correction(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT),
-            None
-        );
-        assert_eq!(window_size_correction(1380.0, 850.0), None);
-        // Nothing caps an oversized window: spanning two displays is a choice.
-        assert_eq!(window_size_correction(2704.0, 2018.0), None);
-    }
-
-    #[test]
-    fn a_window_halved_by_a_scale_factor_change_is_grown_back() {
-        // Exactly what a 1352x1009 state file replays as on a 2x display, and
-        // the size that used to drop the sidebar out of the layout entirely.
-        assert_eq!(
-            window_size_correction(676.0, 505.0),
-            Some((MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT))
-        );
-    }
-
-    #[test]
-    fn only_the_axis_below_the_floor_is_corrected() {
-        assert_eq!(
-            window_size_correction(1380.0, 505.0),
-            Some((1380.0, MIN_WINDOW_HEIGHT))
-        );
-        assert_eq!(
-            window_size_correction(676.0, 900.0),
-            Some((MIN_WINDOW_WIDTH, 900.0))
-        );
-    }
-
-    #[test]
-    fn a_corrected_size_is_not_corrected_again() {
-        // The correction raises another resize event, so the second pass has
-        // to settle rather than resize again.
-        let (width, height) = window_size_correction(676.0, 505.0).unwrap();
-        assert_eq!(window_size_correction(width, height), None);
-    }
-
-    #[test]
-    fn a_window_with_no_size_is_left_alone() {
-        // macOS reports a zero axis for a window that is off screen; resizing
-        // one fights the window manager instead of the bug.
-        assert_eq!(window_size_correction(0.0, 0.0), None);
-        assert_eq!(window_size_correction(1380.0, 0.0), None);
-    }
-
-    #[test]
-    fn a_remembered_size_survives_the_round_trip() {
-        // The format written by `persist_window_size`, read back by
-        // `restore_window_size`. Points are whole numbers on the way out.
-        assert_eq!(parse_window_size("1380x850"), Some((1380.0, 850.0)));
-        assert_eq!(parse_window_size(" 1380 x 850 "), Some((1380.0, 850.0)));
-    }
-
-    #[test]
-    fn a_damaged_remembered_size_is_refused_rather_than_guessed() {
-        // Each of these would open the window somewhere useless if coerced,
-        // and the configured default is a better answer than any of them.
-        for value in [
-            "",
-            "1380",
-            "1380x",
-            "x850",
-            "1380x0",
-            "0x850",
-            "-1380x850",
-            "widexhigh",
-            "1380x850x2",
-            "NaNxNaN",
-            "infxinf",
-        ] {
-            assert_eq!(parse_window_size(value), None, "{value} should be refused");
-        }
-    }
-
-    #[test]
-    fn a_remembered_size_below_the_floor_is_raised_on_the_way_in() {
-        // A document written by a build that stored the cramped size cannot
-        // bring the cramped window back with it.
-        let (width, height) = parse_window_size("676x505").unwrap();
-        assert_eq!(
-            window_size_correction(width, height),
-            Some((MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT))
-        );
     }
 }
