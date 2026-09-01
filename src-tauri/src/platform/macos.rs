@@ -1,8 +1,10 @@
 use std::ptr::NonNull;
 
-use objc2::MainThreadMarker;
+use log::info;
+use objc2::runtime::{AnyObject, Bool};
+use objc2::{msg_send, MainThreadMarker};
 use objc2_app_kit::{NSAutoresizingMaskOptions, NSWindow, NSWindowCollectionBehavior, NSWorkspace};
-use objc2_foundation::{NSString, NSURL};
+use objc2_foundation::{NSEdgeInsets, NSPoint, NSRect, NSSize, NSString, NSURL};
 use tauri::{Runtime, Window};
 
 const PROVIDER_CORNER_RADIUS: f64 = 16.0;
@@ -97,6 +99,107 @@ pub(crate) fn pin_provider_webview_edges(webview: &tauri::Webview) -> Result<(),
             let _: () = objc2::msg_send![view, setAutoresizingMask: mask];
         })
         .map_err(|error| format!("Could not pin the embedded browser to the window: {error}"))
+}
+
+/// Reports where AppKit has actually put a WebView, in screen coordinates.
+///
+/// TEMPORARY DIAGNOSTIC. Every other geometry reading in this codebase goes
+/// through wry, and wry answers `bounds()` by inverting the exact coordinate
+/// flip it applied in `set_bounds`. A pane placed against the wrong height
+/// therefore reads back as correctly placed — the error cancels itself out, so
+/// the confirmation pass in `provider::placement` cannot see it. This asks
+/// AppKit directly, which makes the answer independent of our own arithmetic.
+///
+/// The reading is logged from inside the callback rather than returned:
+/// `with_webview` dispatches to the main thread *without waiting* when called
+/// from anywhere else, so a value carried out of the closure would be read
+/// before the closure had run.
+pub(crate) fn log_webview_geometry(webview: &tauri::Webview, role: &'static str) {
+    let dispatched = webview.with_webview(move |platform_webview| unsafe {
+        // SAFETY: Tauri guarantees PlatformWebview::inner is a valid WKWebView
+        // pointer for the duration of this callback. WKWebView inherits from
+        // NSView, and every selector below is declared by NSView or NSWindow.
+        let view = platform_webview.inner().cast::<AnyObject>();
+        let superview: *mut AnyObject = msg_send![view, superview];
+        let window: *mut AnyObject = msg_send![view, window];
+
+        if superview.is_null() || window.is_null() {
+            info!(
+                target: "prompter::provider",
+                "event=geometry_probe role={role} attached=false"
+            );
+            return;
+        }
+
+        let content_view: *mut AnyObject = msg_send![window, contentView];
+        let frame: NSRect = msg_send![view, frame];
+        let bounds: NSRect = msg_send![view, bounds];
+        let superview_bounds: NSRect = msg_send![superview, bounds];
+        let flipped: Bool = msg_send![superview, isFlipped];
+        let window_frame: NSRect = msg_send![window, frame];
+        // `contentLayoutRect` is AppKit's own answer to "which part of the
+        // content view is not covered by the title bar". If it differs from the
+        // content view's bounds, the web content is running underneath the
+        // title bar and the layout has to allow for it.
+        let content_layout: NSRect = msg_send![window, contentLayoutRect];
+        let style_mask: usize = msg_send![window, styleMask];
+        // What AppKit tells *this view* to keep clear. A WebView that spans a
+        // full-size content view is told the title bar covers its top edge, and
+        // WebKit turns that into a content inset — which moves the DOM's origin
+        // away from the view's own origin.
+        let safe_area: NSEdgeInsets = msg_send![view, safeAreaInsets];
+
+        let nil = std::ptr::null_mut::<AnyObject>();
+        let in_window: NSRect = msg_send![view, convertRect: bounds, toView: nil];
+        let screen: NSRect = msg_send![window, convertRectToScreen: in_window];
+
+        let content_screen = if content_view.is_null() {
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))
+        } else {
+            let content_bounds: NSRect = msg_send![content_view, bounds];
+            let in_window: NSRect =
+                msg_send![content_view, convertRect: content_bounds, toView: nil];
+            msg_send![window, convertRectToScreen: in_window]
+        };
+
+        info!(
+            target: "prompter::provider",
+            "event=geometry_probe role={role} superview_is_content_view={} superview_flipped={} \
+        frame={} superview_bounds={} screen={} screen_top={:.1} window={} window_top={:.1} \
+        content_screen={} content_top={:.1} content_layout={} style_mask=0x{:x} \
+safe_area_top={:.1} safe_area_bottom={:.1}",
+            superview == content_view,
+            flipped.as_bool(),
+            describe_rect(frame),
+            describe_rect(superview_bounds),
+            describe_rect(screen),
+            screen.origin.y + screen.size.height,
+            describe_rect(window_frame),
+            window_frame.origin.y + window_frame.size.height,
+            describe_rect(content_screen),
+            content_screen.origin.y + content_screen.size.height,
+            describe_rect(content_layout),
+            style_mask,
+            safe_area.top,
+            safe_area.bottom,
+        );
+    });
+
+    if let Err(error) = dispatched {
+        info!(
+            target: "prompter::provider",
+            "event=geometry_probe role={role} outcome=unavailable reason={error}"
+        );
+    }
+}
+
+/// `[x,y,w,h]` exactly as AppKit reported it, unconverted, so the log records
+/// what was read rather than what this code believes it means.
+fn describe_rect(value: NSRect) -> String {
+    format!(
+        "[{:.1},{:.1},{:.1},{:.1}]",
+        value.origin.x, value.origin.y, value.size.width, value.size.height
+    )
 }
 
 #[cfg(test)]

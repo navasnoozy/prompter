@@ -8,11 +8,11 @@ mod error;
 mod geometry;
 mod navigation;
 mod new_chat;
-mod placement;
+pub(crate) mod placement;
 
 pub(crate) use commands::{
-    open_provider_new_chat, place_prompt, resize_provider_webview, set_provider_visibility,
-    show_provider_webview, ProviderLifecycle,
+    open_provider_new_chat, place_prompt, probe_dom_metrics, resize_provider_webview,
+    set_provider_visibility, show_provider_webview, ProviderLifecycle,
 };
 pub(crate) use navigation::{
     control_provider_navigation, get_provider_navigation_state, ProviderNavigationCoordinator,

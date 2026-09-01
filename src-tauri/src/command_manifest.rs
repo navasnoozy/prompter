@@ -36,4 +36,5 @@ define_app_commands!(
     "set_launch_at_login" => set_launch_at_login,
     "load_settings" => load_settings,
     "save_settings" => save_settings,
+    "probe_dom_metrics" => probe_dom_metrics,
 );

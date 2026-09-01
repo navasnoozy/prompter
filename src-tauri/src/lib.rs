@@ -17,8 +17,8 @@ use app_lifecycle::{
 };
 use provider::{
     control_provider_navigation, get_provider_navigation_state, open_provider_new_chat,
-    place_prompt, resize_provider_webview, set_provider_visibility, show_provider_webview,
-    ProviderLifecycle, ProviderNavigationCoordinator, ProviderPlacement,
+    place_prompt, probe_dom_metrics, resize_provider_webview, set_provider_visibility,
+    show_provider_webview, ProviderLifecycle, ProviderNavigationCoordinator, ProviderPlacement,
 };
 use quick_capture::{
     acknowledge_quick_capture_outcomes, get_quick_capture_status, list_quick_capture_outcomes,
@@ -96,6 +96,17 @@ pub fn run() {
             app_lifecycle::initialize(app.handle(), autostart_available);
             app_lifecycle::install_tray(app.handle());
             quick_capture::initialize(app.handle());
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    for delay in [1500u64, 4000, 8000] {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        provider::placement::probe_dom(&handle);
+                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                        provider::placement::read_dom_probe(&handle);
+                    }
+                });
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

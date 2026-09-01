@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-probe-dom-metrics"
+description = "Enables the probe_dom_metrics command without any pre-configured scope."
+commands.allow = ["probe_dom_metrics"]
+
+[[permission]]
+identifier = "deny-probe-dom-metrics"
+description = "Denies the probe_dom_metrics command without any pre-configured scope."
+commands.deny = ["probe_dom_metrics"]
