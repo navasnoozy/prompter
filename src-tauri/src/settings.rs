@@ -27,12 +27,21 @@ const ALLOWED_KEYS: [&str; 6] = [
 /// The Quick Capture accelerator, owned by the Rust side.
 pub(crate) const QUICK_CAPTURE_SHORTCUT_KEY: &str = "quickCaptureShortcut";
 
+/// The main window's last size, as `WIDTHxHEIGHT` in *logical* points.
+///
+/// Prompter stores this itself rather than letting `tauri-plugin-window-state`
+/// carry it, because that plugin records `inner_size()` in physical pixels and
+/// replays it as physical pixels without ever recording the scale factor it
+/// was measured at. Move the window between a 2x panel and a 1x one and the
+/// figure comes back multiplied or divided by two.
+pub(crate) const WINDOW_SIZE_KEY: &str = "windowSize";
+
 /// Backend-owned keys share the settings document so one atomic write keeps
 /// every preference consistent, but they are deliberately absent from
 /// `ALLOWED_KEYS`. The webview therefore cannot overwrite them through
 /// `save_settings`, and never receives them from `load_settings`; the shortcut
 /// reaches the frontend through the validated Quick Capture status instead.
-const BACKEND_KEYS: [&str; 1] = [QUICK_CAPTURE_SHORTCUT_KEY];
+const BACKEND_KEYS: [&str; 2] = [QUICK_CAPTURE_SHORTCUT_KEY, WINDOW_SIZE_KEY];
 
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 

@@ -14,6 +14,8 @@
       {
         "label": "main",
         "title": "Prompter",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "width": 1380,
         "height": 850,
         "minWidth": 1000,
@@ -29,7 +31,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "macOS": {
       "minimumSystemVersion": "10.15",
       "entitlements": "entitlements.mac.plist",

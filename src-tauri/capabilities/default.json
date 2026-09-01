@@ -11,6 +11,7 @@
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "core:window:allow-start-dragging",
     "allow-get-provider-navigation-state",
     "allow-control-provider-navigation",
     "allow-show-provider-webview",

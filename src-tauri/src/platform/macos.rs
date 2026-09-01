@@ -167,7 +167,7 @@ pub(crate) fn log_webview_geometry(webview: &tauri::Webview, role: &'static str)
             "event=geometry_probe role={role} superview_is_content_view={} superview_flipped={} \
         frame={} superview_bounds={} screen={} screen_top={:.1} window={} window_top={:.1} \
         content_screen={} content_top={:.1} content_layout={} style_mask=0x{:x} \
-safe_area_top={:.1} safe_area_bottom={:.1}",
+        safe_area_top={:.1} safe_area_bottom={:.1}",
             superview == content_view,
             flipped.as_bool(),
             describe_rect(frame),

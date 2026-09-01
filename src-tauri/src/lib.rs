@@ -74,11 +74,15 @@ pub fn run() {
                 .build(),
         )
         .plugin(quick_capture::shortcut_plugin())
+        // SIZE is deliberately absent. The plugin saves `inner_size()` in
+        // physical pixels and replays it as physical pixels without recording
+        // the scale factor it measured, so a window saved on a 2x panel
+        // reopens at half the size against a 1x one. `app_lifecycle` carries
+        // the size itself, in logical points, which has no such failure mode.
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::SIZE
-                        | tauri_plugin_window_state::StateFlags::POSITION
+                    tauri_plugin_window_state::StateFlags::POSITION
                         | tauri_plugin_window_state::StateFlags::MAXIMIZED,
                 )
                 .build(),
@@ -125,6 +129,7 @@ pub fn run() {
         tauri::RunEvent::ExitRequested {
             code: None, api, ..
         } => {
+            app_lifecycle::persist_window_size(app);
             quick_capture::handle_exit_requested(app, &api);
         }
         _ => {}
@@ -152,6 +157,11 @@ mod command_manifest_tests {
             .collect();
         expected.insert("core:event:allow-listen".into());
         expected.insert("core:event:allow-unlisten".into());
+        // The sidebar's title strip drives the window drag itself rather than
+        // through `data-tauri-drag-region`, whose handler skips any press that
+        // lands inside the system double-click interval and so strands a window
+        // half-way through a nudge.
+        expected.insert("core:window:allow-start-dragging".into());
 
         assert_eq!(actual, expected);
         assert_eq!(permissions.len(), expected.len(), "duplicate permission");

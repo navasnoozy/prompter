@@ -237,7 +237,7 @@ pub(crate) async fn show_provider_webview(
     provider: Provider,
     bounds: ProviderBounds,
 ) -> Result<(), ProviderCommandError> {
-    info!(target: "prompter::provider", "event=trace step=show_entered provider={:?}", provider);
+    info!(target: "prompter::provider", "event=trace step=show_entered provider={provider:?}");
     let _creation_guard = lifecycle.lock_creation().await;
     info!(target: "prompter::provider", "event=trace step=show_guarded");
     let config = provider.config();

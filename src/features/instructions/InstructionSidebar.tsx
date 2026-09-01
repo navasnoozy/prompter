@@ -5,6 +5,7 @@ import {
   DEFAULT_SHORTCUT_DISPLAY,
 } from "../quickCapture/model";
 import { useCaptureStore } from "../quickCapture/store";
+import { beginWindowDrag } from "../../shared/windowGateway";
 import { useSettingsStore } from "../settings/store";
 import { useInstructionStore } from "./store";
 
@@ -35,6 +36,22 @@ export function InstructionSidebar() {
 
   return (
     <aside className="sidebar">
+      {/* macOS draws the traffic lights over this strip once the title bar is
+          an overlay, and an overlay title bar leaves the window with no drag
+          handle of its own, so this is also the only place it can be moved
+          from. It carries the wordmark the hidden native title gave up. */}
+      <div
+        className="sidebar-titlebar"
+        onMouseDown={(event) => {
+          if (event.button !== 0) return;
+          // Stops the press from starting a text selection under the drag.
+          event.preventDefault();
+          beginWindowDrag();
+        }}
+      >
+        <span className="sidebar-wordmark">Prompter</span>
+      </div>
+
       <div className="sidebar-navigation">
         {panelOpen && navigation.available && (
           <ProviderNavigationCapsule

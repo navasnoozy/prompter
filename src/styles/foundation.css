@@ -13,6 +13,13 @@
   --purple-dark: #5638c0;
   --purple-soft: #f1edff;
   --backdrop-bg: rgba(24, 20, 34, 0.48);
+
+  /* Height of the band macOS draws its three window buttons over, now that the
+     title bar is an overlay. Tauri's own docs warn that this height varies by
+     macOS version and no API reports it, so this is a convention, not a
+     measurement: 38px clears every version since 10.15 and nothing below the
+     band depends on the exact figure. */
+  --titlebar-height: 38px;
 }
 
 * { box-sizing: border-box; }

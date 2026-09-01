@@ -4,12 +4,35 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 26px 18px 18px;
+  padding: 0 18px 18px;
   color: #f7f4ff;
   background:
     radial-gradient(circle at 10% 5%, rgba(145, 114, 236, 0.32), transparent 25%),
     linear-gradient(175deg, #2c2348 0%, #1d1930 62%, #171523 100%);
   border-right: 1px solid rgba(255,255,255,0.07);
+}
+
+.sidebar-titlebar {
+  flex: none;
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  /* Cancels the sidebar's own side padding, so the entire band is draggable
+     rather than just the column the content sits in. */
+  margin: 0 -18px 6px;
+  /* Clears the three window buttons, which macOS lays out from the window's
+     left edge and not from our padding box. */
+  padding: 0 18px 0 82px;
+}
+.sidebar-wordmark {
+  /* A drag region only applies to the element directly under the pointer, so
+     the wordmark must not be a hit target — otherwise dragging dies wherever
+     the text is. */
+  pointer-events: none;
+  color: #cfc3f5;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
 }
 
 .sidebar-navigation {

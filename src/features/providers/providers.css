@@ -1,7 +1,7 @@
 .workspace {
   min-width: 0;
   min-height: 100vh;
-  padding: 10px 12px 8px;
+  padding: 12px 12px 8px;
   display: flex;
   flex-direction: column;
 }
@@ -25,27 +25,26 @@
 .provider-logo.chatgpt { background: #292a2d; }
 .provider-logo.gemini { background: linear-gradient(135deg, #5286f4, #9c63db 64%, #ed7799); }
 
+/* The provider pane's host element is measured with getBoundingClientRect and
+   handed to the native layer, so it has to sit inside this border: a rect taken
+   from the card itself would include the 1px border and push the pane over it.
+   `position: relative` anchors that host, and its `inset: 0` then resolves
+   against the padding box, which already excludes the border.
+
+   A native child WebView always paints above DOM content, so browser controls
+   live outside this card (in the sidebar) where nothing native can ever cover
+   them; z-index cannot safely overlay controls on the provider page. For the
+   same reason the radius below shapes only the empty-state backdrop — the
+   pane's own corners are rounded natively in platform::macos. */
 .browser-card {
+  position: relative;
   min-height: 420px;
-  display: flex;
   flex: 1;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: var(--paper);
-  box-shadow: 0 14px 40px rgba(45, 34, 72, .055);
-}
-.provider-webview-frame {
-  /* A native child WebView always paints above DOM content, so its controls
-     live outside this frame (in the sidebar) where nothing native can ever
-     cover them; z-index cannot safely overlay controls on the provider page. */
-  position: relative;
-  width: 100%;
-  min-height: 420px;
-  flex: 1;
-  overflow: hidden;
-  border-radius: 17px;
   background: #fbfafc;
+  box-shadow: 0 14px 40px rgba(45, 34, 72, .055);
 }
 .browser-navigation-capsule {
   display: flex;
@@ -136,7 +135,14 @@
   border-color: #b3a0ef;
   box-shadow: 0 0 0 3px rgba(110, 81, 217, .14);
 }
-.dock-text-box textarea:focus {
+/* The dock's frame, its radius and its focus ring all belong to
+   `.dock-text-box`; the textarea inside is deliberately borderless and square,
+   so a ring of its own paints as a hard rectangle cutting across the rounded
+   one. The theme layer restates the generic field ring at exactly this
+   specificity and is imported after this file, so the dark-theme selector is
+   spelled out here to outrank it rather than tie with it. */
+.dock-text-box textarea:focus,
+.theme-dark .dock-text-box textarea:focus {
   outline: none;
   box-shadow: none;
 }
